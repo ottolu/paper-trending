@@ -1,4 +1,3 @@
-import json
 from unittest.mock import AsyncMock, patch, MagicMock
 import pytest
 from backend.core.llm_client import LLMClient

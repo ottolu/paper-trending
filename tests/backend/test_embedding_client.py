@@ -21,9 +21,12 @@ async def test_embed_single_text(client):
         mock_create.assert_called_once_with(model="text-embedding-3-small", input=["hello world"])
 
 async def test_embed_multiple_texts(client):
-    mock_emb1 = MagicMock(); mock_emb1.embedding = [0.1, 0.2]
-    mock_emb2 = MagicMock(); mock_emb2.embedding = [0.3, 0.4]
-    mock_response = MagicMock(); mock_response.data = [mock_emb1, mock_emb2]
+    mock_emb1 = MagicMock()
+    mock_emb1.embedding = [0.1, 0.2]
+    mock_emb2 = MagicMock()
+    mock_emb2.embedding = [0.3, 0.4]
+    mock_response = MagicMock()
+    mock_response.data = [mock_emb1, mock_emb2]
     with patch.object(client._client.embeddings, "create", new_callable=AsyncMock) as mock_create:
         mock_create.return_value = mock_response
         result = await client.embed(["text one", "text two"])

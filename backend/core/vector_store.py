@@ -20,14 +20,17 @@ class VectorStore:
     def get(self, collection_name: str, ids: list[str] | None = None, where: dict | None = None) -> dict:
         collection = self._client.get_collection(collection_name)
         kwargs = {}
-        if ids: kwargs["ids"] = ids
-        if where: kwargs["where"] = where
+        if ids:
+            kwargs["ids"] = ids
+        if where:
+            kwargs["where"] = where
         return collection.get(**kwargs)
 
     def query(self, collection_name: str, query_embeddings: list[list[float]], n_results: int = 10, where: dict | None = None) -> dict:
         collection = self._client.get_collection(collection_name)
         kwargs: dict[str, Any] = {"query_embeddings": query_embeddings, "n_results": n_results}
-        if where: kwargs["where"] = where
+        if where:
+            kwargs["where"] = where
         return collection.query(**kwargs)
 
     def delete(self, collection_name: str, ids: list[str]) -> None:

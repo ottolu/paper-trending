@@ -1,9 +1,13 @@
-import os
 from pathlib import Path
 
 import pytest
 
 from backend.config.loader import load_config, AppConfig
+
+
+@pytest.fixture(autouse=True)
+def _set_env_vars(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test-key-for-config")
 
 
 @pytest.fixture

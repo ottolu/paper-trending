@@ -1,9 +1,7 @@
 from datetime import datetime, date
-import pytest
 from backend.core.models import (
     Paper, PaperSource, PaperFile, StageRun, StageStatus,
-    AnalysisRun, PaperAnalysis, EmbeddingVersion, ClusterRun,
-    WeeklyReport, SyncLogEntry,
+    AnalysisRun, PaperAnalysis, EmbeddingVersion, WeeklyReport, SyncLogEntry,
 )
 
 def test_paper_creation():
