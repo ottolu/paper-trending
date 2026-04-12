@@ -15,6 +15,9 @@ def create_app(db: Database | None = None) -> FastAPI:
     from backend.api.papers import router as papers_router
     app.include_router(papers_router)
 
+    from backend.api.reports import router as reports_router
+    app.include_router(reports_router)
+
     @app.get("/api/health")
     async def health():
         return {"status": "ok", "version": "0.1.0"}
