@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -26,5 +26,5 @@ async def retry_stage(req: RetryRequest):
     return {
         "status": "accepted",
         "stage_run_id": req.stage_run_id,
-        "accepted_at": datetime.utcnow().isoformat(),
+        "accepted_at": datetime.now(UTC).isoformat(),
     }
