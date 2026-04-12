@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom"
+      xmlns:arxiv="http://arxiv.org/schemas/atom"
+      xmlns:opensearch="http://a9.com/-/spec/opensearch/1.1/">
+  <opensearch:totalResults>2</opensearch:totalResults>
+  <opensearch:startIndex>0</opensearch:startIndex>
+  <opensearch:itemsPerPage>10</opensearch:itemsPerPage>
+  <entry>
+    <id>http://arxiv.org/abs/2401.00001v1</id>
+    <updated>2024-01-15T00:00:00Z</updated>
+    <published>2024-01-15T00:00:00Z</published>
+    <title>Scaling Laws for Neural Language Models</title>
+    <summary>We study empirical scaling laws for language model performance.</summary>
+    <author><name>Alice Smith</name></author>
+    <author><name>Bob Jones</name></author>
+    <arxiv:primary_category term="cs.CL"/>
+    <category term="cs.CL"/>
+    <category term="cs.AI"/>
+    <link href="http://arxiv.org/abs/2401.00001v1" rel="alternate" type="text/html"/>
+    <link href="http://arxiv.org/pdf/2401.00001v1" title="pdf" rel="related" type="application/pdf"/>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2401.00002v1</id>
+    <updated>2024-01-15T00:00:00Z</updated>
+    <published>2024-01-14T00:00:00Z</published>
+    <title>Attention Is All You Need Revisited</title>
+    <summary>A revisit of the transformer architecture with new insights.</summary>
+    <author><name>Carol White</name></author>
+    <link href="http://arxiv.org/abs/2401.00002v1" rel="alternate" type="text/html"/>
+    <link href="http://arxiv.org/pdf/2401.00002v1" title="pdf" rel="related" type="application/pdf"/>
+    <arxiv:primary_category term="cs.LG"/>
+    <category term="cs.LG"/>
+  </entry>
+</feed>
