@@ -6,21 +6,41 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 
 class LLMConfig(BaseModel):
-    base_url: str
-    api_key: str
-    model: str
+    base_url: str = "https://api.openai.com/v1"
+    api_key: str = ""
+    model: str = "gpt-4o"
     prompt_version: str = "analysis_v1"
+
+    @model_validator(mode="after")
+    def _resolve_api_key(self):
+        if not self.api_key:
+            self.api_key = os.environ.get("OPENAI_API_KEY", "")
+        if not self.api_key:
+            raise ValueError(
+                "llm.api_key must be set in config file or via OPENAI_API_KEY env var"
+            )
+        return self
 
 
 class EmbeddingConfig(BaseModel):
-    base_url: str
-    api_key: str
-    model: str
+    base_url: str = "https://api.openai.com/v1"
+    api_key: str = ""
+    model: str = "text-embedding-3-small"
     active_version_id: int = 1
+
+    @model_validator(mode="after")
+    def _resolve_api_key(self):
+        if not self.api_key:
+            self.api_key = os.environ.get("OPENAI_API_KEY", "")
+        if not self.api_key:
+            raise ValueError(
+                "embedding.api_key must be set in config file or via OPENAI_API_KEY env var"
+            )
+        return self
 
 
 class ObsidianConfig(BaseModel):
@@ -69,12 +89,7 @@ def _interpolate_env_vars(data: Any) -> Any:
         match = _ENV_VAR_PATTERN.fullmatch(data)
         if match:
             var_name = match.group(1)
-            value = os.environ.get(var_name)
-            if value is None:
-                raise ValueError(
-                    f"Environment variable {var_name} is required but not set"
-                )
-            return value
+            return os.environ.get(var_name, "")
         return data
     if isinstance(data, dict):
         return {k: _interpolate_env_vars(v) for k, v in data.items()}

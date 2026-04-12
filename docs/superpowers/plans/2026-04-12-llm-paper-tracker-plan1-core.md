@@ -13,7 +13,7 @@
 ## File Structure
 
 ```
-claude-chat/
+paper-trending/
 ├── pyproject.toml                          # Project metadata, dependencies, tool config
 ├── backend/
 │   ├── __init__.py

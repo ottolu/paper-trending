@@ -1,12 +1,12 @@
 llm:
   base_url: "https://api.openai.com/v1"
-  api_key: "${OPENAI_API_KEY}"
+  api_key: ""  # 直接填写，或留空则读取 OPENAI_API_KEY 环境变量
   model: "gpt-4o"
   prompt_version: "analysis_v1"
 
 embedding:
   base_url: "https://api.openai.com/v1"
-  api_key: "${OPENAI_API_KEY}"
+  api_key: ""  # 直接填写，或留空则读取 OPENAI_API_KEY 环境变量
   model: "text-embedding-3-small"
   active_version_id: 1
 

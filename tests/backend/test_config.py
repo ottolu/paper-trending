@@ -49,12 +49,39 @@ def test_load_config_reads_pdf_settings(test_config_path):
 
 
 def test_load_config_interpolates_env_vars(test_config_path, monkeypatch):
+    """${VAR} syntax in yaml resolves to the env var value."""
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test-key-123")
     config = load_config(test_config_path)
     assert config.llm.api_key == "sk-test-key-123"
 
 
-def test_load_config_missing_env_var_raises(test_config_path, monkeypatch):
+def test_load_config_env_var_fallback(test_config_path, monkeypatch):
+    """Empty api_key in yaml falls back to OPENAI_API_KEY env var."""
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-fallback-key")
+    config = load_config(test_config_path)
+    # embedding.api_key is "" in test fixture → should fall back to env var
+    assert config.embedding.api_key == "sk-fallback-key"
+
+
+def test_load_config_direct_value_takes_priority(tmp_path, monkeypatch):
+    """Direct value in yaml takes priority over env var."""
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-env-key")
+    config_file = tmp_path / "settings.yaml"
+    config_file.write_text(
+        "llm:\n"
+        '  api_key: "sk-direct-key"\n'
+        "embedding:\n"
+        '  api_key: "sk-direct-key"\n'
+        "obsidian:\n"
+        '  vault_path: "/tmp/test"\n'
+    )
+    config = load_config(config_file)
+    assert config.llm.api_key == "sk-direct-key"
+    assert config.embedding.api_key == "sk-direct-key"
+
+
+def test_load_config_no_api_key_anywhere_raises(test_config_path, monkeypatch):
+    """Error when api_key is not in config file and env var is also unset."""
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    with pytest.raises(ValueError, match="OPENAI_API_KEY"):
+    with pytest.raises(Exception, match="api_key"):
         load_config(test_config_path)

@@ -1046,7 +1046,7 @@ embedding:
 ## 11. 项目结构
 
 ```
-claude-chat/
+paper-trending/
 ├── backend/
 │   ├── config/
 │   │   └── settings.yaml

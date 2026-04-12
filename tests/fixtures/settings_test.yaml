@@ -6,7 +6,7 @@ llm:
 
 embedding:
   base_url: "https://api.openai.com/v1"
-  api_key: "${OPENAI_API_KEY}"
+  api_key: ""
   model: "text-embedding-3-small"
   active_version_id: 1
 
