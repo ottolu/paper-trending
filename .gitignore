@@ -8,3 +8,5 @@ data/
 .venv/
 node_modules/
 dist/
+*.egg-info/
+.DS_Store
