@@ -21,27 +21,51 @@ class StageRunner:
         )
         return run_id
 
-    async def claim(self, stage: str, worker_id: str, lease_seconds: int = 300) -> dict | None:
-        row = await self._db.fetch_one(
-            "SELECT id FROM stage_runs WHERE stage = ? AND status = 'pending' ORDER BY created_at LIMIT 1",
-            (stage,),
-        )
-        if not row:
-            return None
-        run_id = row["id"]
-        await self._db.execute(
-            "UPDATE stage_runs SET status = 'running', worker_id = ?, "
-            "lease_expires_at = datetime('now', '+' || ? || ' seconds'), updated_at = datetime('now') "
-            "WHERE id = ? AND status = 'pending'",
-            (worker_id, str(lease_seconds), run_id),
-        )
-        current = await self._db.fetch_one("SELECT * FROM stage_runs WHERE id = ?", (run_id,))
-        await self._db.execute(
-            "INSERT INTO stage_run_attempts (stage_run_id, attempt_no, status, worker_id, lease_expires_at, started_at) "
-            "VALUES (?, ?, 'running', ?, ?, datetime('now'))",
-            (run_id, current["attempt_no"], worker_id, current["lease_expires_at"]),
-        )
-        return dict(current)
+    async def claim(
+        self,
+        stage: str,
+        worker_id: str,
+        lease_seconds: int = 300,
+        max_attempts: int = 5,
+    ) -> dict | None:
+        while True:
+            row = await self._db.fetch_one(
+                "SELECT id, attempt_no FROM stage_runs "
+                "WHERE stage = ? AND status = 'pending' "
+                "ORDER BY created_at LIMIT 1",
+                (stage,),
+            )
+            if not row:
+                return None
+            run_id = row["id"]
+            if row["attempt_no"] >= max_attempts:
+                await self._db.execute(
+                    "UPDATE stage_runs SET status = 'failed', "
+                    "last_error = 'max attempts exceeded', "
+                    "last_error_at = datetime('now'), "
+                    "updated_at = datetime('now') WHERE id = ?",
+                    (run_id,),
+                )
+                continue
+            await self._db.execute(
+                "UPDATE stage_runs SET status = 'running', worker_id = ?, "
+                "lease_expires_at = datetime('now', '+' || ? || ' seconds'), "
+                "updated_at = datetime('now') "
+                "WHERE id = ? AND status = 'pending'",
+                (worker_id, str(lease_seconds), run_id),
+            )
+            current = await self._db.fetch_one(
+                "SELECT * FROM stage_runs WHERE id = ?", (run_id,),
+            )
+            await self._db.execute(
+                "INSERT INTO stage_run_attempts "
+                "(stage_run_id, attempt_no, status, worker_id, "
+                "lease_expires_at, started_at) "
+                "VALUES (?, ?, 'running', ?, ?, datetime('now'))",
+                (run_id, current["attempt_no"], worker_id,
+                 current["lease_expires_at"]),
+            )
+            return dict(current)
 
     async def complete(self, run_id: int) -> None:
         current = await self._db.fetch_one("SELECT attempt_no FROM stage_runs WHERE id = ?", (run_id,))

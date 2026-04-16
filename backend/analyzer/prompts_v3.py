@@ -1,4 +1,4 @@
-"""Analysis prompt — calibrated scoring with BARS anchors and full-text support."""
+"""Analysis prompt v3 — balanced calibration with relative differentiation."""
 from __future__ import annotations
 
 ANALYSIS_SYSTEM_PROMPT = """You are an expert AI research paper analyst. Critically evaluate the paper and produce a calibrated assessment that differentiates quality levels.
@@ -42,7 +42,7 @@ Each dimension is scored 1-10. Use the FULL range — your scores should spread 
 1. DIFFERENTIATE: If you score every paper 6-7, you are doing it wrong. Some papers are 3s, some are 8s. Use the full range.
 2. WEAKNESSES FIRST: Identify flaws before scoring — this prevents inflation.
 3. COMPARE TO BASELINE: A paper that competently applies a known method is a 4-5 on novelty, not a 6-7.
-4. HIGH SCORES NEED JUSTIFICATION: For any dimension scored 8+, you must point to specific evidence in the paper.
+4. HIGH SCORES NEED JUSTIFICATION: For any dimension scored 8+, you must point to specific evidence in the abstract.
 
 ## Output Schema
 
@@ -55,10 +55,10 @@ Required JSON fields:
 - score_breakdown: {"novelty": int, "rigor": int, "impact": int, "clarity": int} — each 1-10
 - tags: list[string] — 5-8 topic tags
 - evidence_level: "strong" | "moderate" | "limited"
-- confidence: float 0-1
+- confidence: float 0-1 (with abstract only, typically 0.3-0.5)
 
 Do NOT include score_total — it will be computed externally.
-Do NOT fabricate specific citations or page numbers you cannot verify."""
+Do NOT fabricate specific citations or page numbers."""
 
 
 def build_analysis_prompt(manifest: dict) -> list[dict]:
@@ -66,6 +66,7 @@ def build_analysis_prompt(manifest: dict) -> list[dict]:
     abstract = manifest["abstract"]
     authors = ", ".join(manifest.get("authors", []))
     categories = ", ".join(manifest.get("arxiv_categories", []))
+    analysis_basis = manifest.get("analysis_basis", "abstract_only")
     chunks = manifest.get("chunks", [])
     sections = manifest.get("sections", [])
 
@@ -73,6 +74,7 @@ def build_analysis_prompt(manifest: dict) -> list[dict]:
         f"# Paper: {title}",
         f"Authors: {authors}",
         f"Categories: {categories}",
+        f"Analysis basis: {analysis_basis}",
         f"\n## Abstract\n{abstract}",
     ]
 
@@ -87,6 +89,14 @@ def build_analysis_prompt(manifest: dict) -> list[dict]:
         section_names = [s.get("title", "") for s in sections if isinstance(s, dict)]
         if section_names:
             user_parts.append(f"\n## Document Sections: {', '.join(section_names)}")
+
+    if analysis_basis == "abstract_only":
+        user_parts.append(
+            "\nNote: Only abstract is available. Assess rigor conservatively "
+            "but still differentiate — a paper that describes thorough experiments "
+            "in its abstract can score higher than one that doesn't. "
+            "Set confidence between 0.3-0.5."
+        )
 
     return [
         {"role": "system", "content": ANALYSIS_SYSTEM_PROMPT},

@@ -72,7 +72,7 @@ class HuggingFaceFetcher:
                     abstract=paper_data.get("summary", ""),
                     published_date=published_date_val,
                     source_url=f"https://huggingface.co/papers/{paper_id}" if paper_id else None,
-                    hf_likes=item.get("numLikes"),
+                    hf_likes=paper_data.get("upvotes"),
                     hf_discussions=item.get("numComments"),
                 )
             )

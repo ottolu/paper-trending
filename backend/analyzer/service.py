@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import asyncio
 import json
 import logging
 from pathlib import Path
@@ -54,7 +55,7 @@ class AnalyzerService:
 
             manifest = json.loads(Path(manifest_path).read_text(encoding="utf-8"))
             messages = build_analysis_prompt(manifest)
-            analysis = await self._llm.chat_json(messages)
+            analysis = await self._llm.chat_json(messages, temperature=0)
 
             analysis_run_id = await self._db.execute(
                 "INSERT INTO analysis_runs (paper_id, chunk_manifest_path, chunk_manifest_hash, "
@@ -122,3 +123,33 @@ class AnalyzerService:
         except Exception as e:
             await self._stage_runner.fail(task["id"], str(e))
             return True
+
+    async def process_batch(
+        self, max_concurrent: int = 5, max_items: int | None = None,
+    ) -> dict:
+        sem = asyncio.Semaphore(max_concurrent)
+
+        pending = await self._stage_runner.list_by_status(
+            "analyzer", "pending", limit=max_items or 9999,
+        )
+
+        async def _process_one():
+            async with sem:
+                return await self.process_next()
+
+        tasks = [asyncio.create_task(_process_one()) for _ in pending]
+        await asyncio.gather(*tasks)
+
+        ok = await self._db.fetch_one(
+            "SELECT count(*) as c FROM stage_runs"
+            " WHERE stage='analyzer' AND status='succeeded'"
+        )
+        fail = await self._db.fetch_one(
+            "SELECT count(*) as c FROM stage_runs"
+            " WHERE stage='analyzer' AND status='failed'"
+        )
+        return {
+            "succeeded": ok["c"],
+            "failed": fail["c"],
+            "total": len(pending),
+        }
