@@ -14,6 +14,62 @@ from backend.core.stage_runner import StageRunner
 logger = logging.getLogger(__name__)
 
 
+def _patch_surya_mps():
+    """Patch surya MPS bugs: .item() and .max() on MPS return garbage for certain tensors.
+
+    See: https://github.com/datalab-to/marker/issues/993
+    Patches source files directly (survives module reload, needs re-patch after pip upgrade).
+    """
+    import torch
+    if not torch.backends.mps.is_available():
+        return
+
+    patches = [
+        # encoder: seq_lengths.max().item() crashes on MPS
+        (
+            "surya.common.surya.encoder",
+            "seq_lengths.max().item()",
+            "seq_lengths.cpu().max().item()",
+        ),
+        # __init__: grid_thw product .max().item() crashes on MPS
+        (
+            "surya.common.surya",
+            "(grid_thw[:, 0] * grid_thw[:, 1] * grid_thw[:, 2]).max().item()",
+            "(grid_thw[:, 0] * grid_thw[:, 1] * grid_thw[:, 2]).cpu().max().item()",
+        ),
+        # __init__: grid element .item() in loop
+        (
+            "surya.common.surya",
+            "(grid_thw[i][0] * grid_thw[i][1] * grid_thw[i][2]).item()",
+            "(grid_thw[i][0] * grid_thw[i][1] * grid_thw[i][2]).cpu().item()",
+        ),
+        # __init__: torch.sum in f-string triggers __format__ -> .item() on MPS
+        (
+            "surya.common.surya",
+            "n_image_tokens = torch.sum((input_ids == self.config.image_token_id))",
+            "n_image_tokens = torch.sum((input_ids == self.config.image_token_id)).cpu()",
+        ),
+    ]
+
+    applied = 0
+    for module_name, old, new in patches:
+        try:
+            mod = __import__(module_name, fromlist=[""])
+            src_file = mod.__file__
+            if not src_file:
+                continue
+            src = Path(src_file).read_text(encoding="utf-8")
+            if old in src and new not in src:
+                src = src.replace(old, new)
+                Path(src_file).write_text(src, encoding="utf-8")
+                applied += 1
+        except Exception as e:
+            logger.warning("Failed to patch %s: %s", module_name, e)
+
+    if applied:
+        logger.info("Applied %d surya MPS patches", applied)
+
+
 class PdfParser:
     def __init__(
         self,
@@ -33,6 +89,8 @@ class PdfParser:
     def _get_converter(self):
         """Lazy-load marker converter (expensive, do once)."""
         if self._converter is None:
+            _patch_surya_mps()
+
             from marker.config.parser import ConfigParser
             from marker.converters.pdf import PdfConverter
             from marker.models import create_model_dict

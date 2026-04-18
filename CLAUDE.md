@@ -52,7 +52,7 @@ collect → pdf_fetch → pdf_parse → processor → analyzer → sync
 | VectorStore | `backend/core/vector_store.py` | ChromaDB 持久化封装 |
 | CollectorService | `backend/collectors/service.py` | arXiv/HuggingFace 采集 |
 | PdfFetcher | `backend/pdf/fetcher.py` | PDF 下载 |
-| PdfParser | `backend/pdf/parser.py` | PDF 全文提取 |
+| PdfParser | `backend/pdf/parser.py` | marker-pdf 全文提取（OCR disabled, MPS patched） |
 | ProcessorService | `backend/processor/service.py` | 分块 + 向量化 |
 | AnalyzerService | `backend/analyzer/service.py` | LLM 深度分析 |
 | ObsidianSyncService | `backend/sync/service.py` | 笔记写入 Obsidian vault |
@@ -131,7 +131,69 @@ async def db(tmp_path):
 - `backfill_jobs` / `backfill_job_days` — 回填任务追踪
 - `sync_log` — Obsidian 同步记录（SHA256 校验幂等）
 
+## LLM / Embedding 服务
+
+当前使用 SiliconFlow（OpenAI 兼容 API）：
+- **Base URL**: `https://api.siliconflow.cn/v1`
+- **LLM**: `Qwen/Qwen3-VL-235B-A22B-Thinking`（thinking 模型，reasoning 内容在 `reasoning_content` 字段，不混入 `content`）
+- **Embedding**: `Qwen/Qwen3-Embedding-8B`
+- **限流**: TPM 限制较严格，full-text 分析（每篇 10-60K tokens）时必须控制并发（建议 concurrency=1 + 间隔 5-10s）
+- **配置**: `settings.yaml`（已 gitignore）
+
+### LLMClient 注意事项
+
+- `chat_json()` 内置 `_extract_json()`：strip `<think>` blocks → strip markdown fences → brace-depth JSON 提取
+- 内置 retry（max_retries=2）
+- `response_format: {"type": "json_object"}` 与 Qwen3-Thinking 兼容，不需要移除
+- 评分分析调用必须设 `temperature=0`
+
+### StageRunner 注意事项
+
+- `claim()` 有 `max_attempts=5` 上限，超过后自动标记为 failed
+- 重置失败任务时注意 `stage_run_attempts` 表的 UNIQUE 约束：`attempt_no` 必须大于已有记录
+
+## PDF 解析
+
+使用 marker-pdf (v1.10.2) + surya-ocr (v0.17.1)，配置 `disable_ocr=True`（arXiv PDF 是数字原生，不需要 OCR）：
+- 首次调用需下载模型 (~2.6GB)，之后缓存在 `~/Library/Caches/datalab/`
+- `asyncio.to_thread()` 包装（CPU 密集型同步操作）
+- 不能通过 stdin heredoc 调用（multiprocessing 不兼容），必须用脚本文件
+- 输出存储在 `data/papers/{paper_id}/extracted/{extraction_id}/fulltext.md`
+
+### MPS 兼容性
+
+surya 在 Apple Silicon MPS 上有多个 `.item()`/`.max()` 返回垃圾值的 bug（PyTorch MPS kernel 问题）。
+`_patch_surya_mps()` 在 `parser.py` 中自动 patch surya 源码。**pip 升级 surya 后需重新触发 patch。**
+
+### 性能基准（M5 24GB, 17页 PDF）
+
+| 模式 | 每页速度 | 说明 |
+|------|---------|------|
+| CPU | 12.8s/页 | 无需 patch |
+| MPS (patch 后) | 5.6-6.5s/页 | 生产使用，约 2x 提速 |
+
+- Layout Recognition 占总耗时 ~70%，是主要瓶颈
+- 调大 batch_size 在 MPS 上无收益（统一内存带宽瓶颈），默认值最优
+- TableRec 不兼容 MPS 自动 fallback CPU，warning 可忽略
+
+## HuggingFace API
+
+- Daily Papers API: `https://huggingface.co/api/daily_papers?date=YYYY-MM-DD`
+- **likes 字段**: `paper.upvotes`（不是 `item.numLikes`）
+- discussions 字段: `item.numComments`
+
+## Prompt 优化经验
+
+评分 prompt 经过 v1→v2→v3 三轮迭代 + 跨模型验证（Qwen3 vs GPT-5.4），关键发现：
+- 当前 prompt 在 `backend/analyzer/prompts.py`（v3，带 BARS 锚点 + weaknesses-first）
+- `score_total` 不由 LLM 输出，在 Python 侧从 `score_breakdown` 子分数计算
+- Qwen3 的 rigor/clarity 子分数存在系统性虚高（几乎全给 8），GPT-5.4 更有区分度
+- 子分数排序跨模型一致性高 (Spearman 0.6-0.7)，说明模型判断有意义
+- HF likes 与学术质量弱相关 (Spearman ~0.1)，不适合作为评分 ground truth
+- 评估工具和历史结果在 `scripts/eval_prompt.py` 和 `data/eval_results/`
+
 ## Design Docs
 
 - 设计文档: `docs/superpowers/specs/2026-04-12-llm-paper-tracker-design.md`
 - 实现计划: `docs/superpowers/plans/` (Plan 1-9)
+- Prompt 优化计划: `docs/prompt-optimization-plan.md`
