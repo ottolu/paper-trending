@@ -33,9 +33,21 @@ def parser(db, stage_runner, data_root):
         db=db,
         stage_runner=stage_runner,
         paper_root=data_root,
-        parser_name="stub",
+        parser_name="pymupdf",
         parser_version="v0.1",
     )
+
+
+def _make_minimal_pdf() -> bytes:
+    """Generate a minimal valid PDF via pymupdf for tests."""
+    import pymupdf
+
+    doc = pymupdf.open()
+    page = doc.new_page()
+    page.insert_text((50, 72), "Test Paper\n\nBody text for parser unit tests.")
+    data = doc.tobytes()
+    doc.close()
+    return data
 
 
 async def _setup_paper_and_file(db, data_root, paper_id="paper-001"):
@@ -46,7 +58,7 @@ async def _setup_paper_and_file(db, data_root, paper_id="paper-001"):
     )
     pdf_path = Path(data_root) / paper_id / "files" / "versions" / "abc123.pdf"
     pdf_path.parent.mkdir(parents=True, exist_ok=True)
-    pdf_path.write_bytes(b"%PDF-1.4 test content for parsing")
+    pdf_path.write_bytes(_make_minimal_pdf())
 
     paper_file_id = await db.execute(
         "INSERT INTO paper_files (paper_id, file_type, storage_path, sha256, "
@@ -66,7 +78,7 @@ async def test_parse_creates_extraction_record(parser, db, data_root):
         "SELECT * FROM pdf_extractions WHERE paper_id = ?", ("paper-001",)
     )
     assert row is not None
-    assert row["parser_name"] == "stub"
+    assert row["parser_name"] == "pymupdf"
     assert row["parser_version"] == "v0.1"
     assert row["extraction_status"] == "succeeded"
     assert result["extraction_id"] == row["id"]

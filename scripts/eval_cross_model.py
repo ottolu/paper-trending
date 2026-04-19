@@ -10,7 +10,7 @@ import statistics
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from backend.analyzer.prompts_v3 import ANALYSIS_SYSTEM_PROMPT
+from backend.analyzer.prompts import ANALYSIS_SYSTEM_PROMPT
 
 PAPERS_PATH = Path("/tmp/cross_model_papers_full.json")
 RESULTS_DIR = Path("/Users/luotto/paper-trending/data/eval_results")

@@ -304,3 +304,43 @@ Parsed PDF 中间件：`data/parsing_fulltext/{arxiv_id}/` 下含 `fulltext.md`�
 - [x] `frontend/src/pages/PaperDetail.tsx`：头部作者/sources 行追加 `♥ {hf_likes} on HuggingFace`，与 Score 卡片并列不混合
 - [x] `frontend/src/pages/Dashboard.tsx`：新增 "Community Buzz" 专区，按 `hf_likes_desc` 排序，与 Recent Papers 两列并排；卡片同时展示 Score 和 ♥，明确两个信号独立
 - 验收：`pytest tests/backend/test_api/test_papers.py` 7/7 通过；`ruff check` 通过；`frontend npm run build` 成功
+
+---
+
+## 9. 生产切换：PyMuPDF 作为默认解析器 + Prompts 目录整理
+
+### PyMuPDF 生产化（2026-04-20）
+
+`PdfParser` 增加了 `_run_pymupdf()` 分支，`parse()` 按 `self._parser_name` dispatch：
+
+- `settings.yaml` 默认 `parser_name: "pymupdf"`（从 "marker" 改）
+- 构造函数放宽 parser 校验（允许 "stub" 等测试名），实际 dispatch 时未识别则报错
+- 输出格式保持一致（`fulltext.md` / `fulltext.txt` / `blocks.json` / `sections.json`），下游 ProcessorService 无需改动
+- 测试 `tests/backend/test_pdf/test_parser.py` 由用 `parser_name="stub"` + 假 PDF 改为用 `parser_name="pymupdf"` + `pymupdf.open() -> new_page()` 生成的最小合法 PDF，5/5 通过
+
+旧 fake PDF 测试其实在我改动前就是坏的（marker-pdf 吃不下 `%PDF-1.4 test content`），本次顺手修好。
+
+### Prompts 文件整理（2026-04-20）
+
+之前状态：`prompts.py`（生产）/ `prompts_v2.py` / `prompts_v3.py`（archived）/ `prompts_v4.py`，命名混乱 — `prompts.py` 实际是 "fulltext-aware v3"，但旁边又有个独立的 `prompts_v3.py`。
+
+清理后：
+- **`prompts.py`** — 生产单一来源（production 等价于 v3 with fulltext-aware）
+- **`prompts_v2.py`** — 保留（历史评测基线，仍被 `scripts/eval_prompt.py` 引用）
+- **`prompts_v4.py`** — 保留（peer-review 评测变体）
+- **`prompts_v3.py`** — 删除（`prompts.py` 才是 v3）
+
+更新 `scripts/eval_prompt.py` 的 version registry：`v1`/`v3`/`current`/`production` 都映射到 `prompts`，加了 `v4` 入口。
+更新 `scripts/eval_cross_model.py`：从 `backend.analyzer.prompts_v3` 改为 `backend.analyzer.prompts`。
+
+**规则：版本号只用于评测对照变体（如 `_v4` peer-review），生产不带版本号。**
+
+### CLAUDE.md 一致性修正
+
+修掉下列和真实代码不一致的描述：
+- LLM 模型：`Qwen/Qwen3-VL-235B-A22B-Thinking` → `deepseek-ai/DeepSeek-V3.2`
+- 并发建议：`concurrency=1 + 间隔 5-10s` → `MAX_CONCURRENCY=3 实测稳定`
+- Layout Recognition 耗时占比：`~70%` → `~91%`（今天实测）
+- PDF 解析：`marker 默认` → `pymupdf 默认，marker 可选`
+- Prompt 文件描述：清晰标注哪个是生产、哪个是评测变体
+- 新增：V3.2 `reasoning_content` fallback **尚未**集成到 `LLMClient.chat_json()`（只评测脚本有），作为 TODO 标注

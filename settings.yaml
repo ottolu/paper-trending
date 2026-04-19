@@ -21,7 +21,9 @@ storage:
 pdf:
   download_timeout_seconds: 120
   max_file_size_mb: 100
-  parser_name: "marker"
+  # pymupdf: fast path (~0.5s/paper), font-size-based heading heuristic.
+  # Alternative: "marker" for precise table/equation reconstruction or scanned PDFs.
+  parser_name: "pymupdf"
   parser_version: "v1"
   keep_raw_pdf: true
 

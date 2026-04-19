@@ -5,7 +5,7 @@ import asyncio
 import json
 import logging
 import re
-import tempfile
+from collections import Counter
 from pathlib import Path
 
 from backend.core.database import Database
@@ -70,13 +70,16 @@ def _patch_surya_mps():
         logger.info("Applied %d surya MPS patches", applied)
 
 
+SUPPORTED_PARSERS = {"pymupdf", "marker"}
+
+
 class PdfParser:
     def __init__(
         self,
         db: Database,
         stage_runner: StageRunner,
         paper_root: str,
-        parser_name: str = "marker",
+        parser_name: str = "pymupdf",
         parser_version: str = "v1",
     ):
         self._db = db
@@ -168,10 +171,20 @@ class PdfParser:
         )
         extraction_dir.mkdir(parents=True, exist_ok=True)
 
-        # Run marker-pdf in a thread (CPU-intensive sync operation)
-        markdown, sections, page_count = await asyncio.to_thread(
-            self._run_marker, str(pdf_path)
-        )
+        # Dispatch to parser backend (both sync, run in thread).
+        if self._parser_name == "pymupdf":
+            markdown, sections, page_count = await asyncio.to_thread(
+                self._run_pymupdf, str(pdf_path)
+            )
+        elif self._parser_name == "marker":
+            markdown, sections, page_count = await asyncio.to_thread(
+                self._run_marker, str(pdf_path)
+            )
+        else:
+            raise ValueError(
+                f"Unsupported parser_name: {self._parser_name!r}. "
+                f"Expected one of {SUPPORTED_PARSERS}."
+            )
 
         # Derive plain text from markdown (strip formatting)
         fulltext = self._markdown_to_text(markdown)
@@ -212,6 +225,81 @@ class PdfParser:
             "extraction_id": extraction_id,
             "extraction_root_path": str(extraction_dir),
         }
+
+    def _run_pymupdf(self, pdf_path: str) -> tuple[str, list[dict], int]:
+        """Extract full text + heading structure via PyMuPDF + font-size heuristic.
+
+        Fast path for native digital PDFs (arXiv). ~0.5s for a 25-page paper vs
+        ~4 min for marker-pdf full layout detection. See dev-note for tradeoffs.
+        """
+        import pymupdf
+
+        doc = pymupdf.open(pdf_path)
+
+        size_chars: Counter[float] = Counter()
+        for page_num in range(len(doc)):
+            text_dict = doc[page_num].get_text("dict")
+            for block in text_dict.get("blocks", []):
+                if block["type"] != 0:
+                    continue
+                for line in block.get("lines", []):
+                    for span in line.get("spans", []):
+                        if span["text"].strip():
+                            size_chars[round(span["size"], 1)] += len(span["text"])
+        body_size = size_chars.most_common(1)[0][0] if size_chars else 10.0
+
+        md_lines: list[str] = []
+        sections: list[dict] = []
+
+        for page_num in range(len(doc)):
+            page = doc[page_num]
+            if page_num > 0:
+                md_lines.append("\n---\n")
+
+            text_dict = page.get_text("dict")
+            for block in text_dict.get("blocks", []):
+                if block["type"] != 0:
+                    continue
+                parts = []
+                block_max_size = 0.0
+                block_bold = False
+                for line in block.get("lines", []):
+                    ltext = ""
+                    for span in line.get("spans", []):
+                        ltext += span["text"]
+                        if span["size"] > block_max_size:
+                            block_max_size = round(span["size"], 1)
+                        if span["flags"] & (1 << 4):
+                            block_bold = True
+                    parts.append(ltext)
+                btext = " ".join(parts).strip()
+                if not btext:
+                    continue
+
+                is_heading = False
+                level = 0
+                if block_max_size > body_size + 1.5:
+                    is_heading = True
+                    level = 1 if block_max_size >= body_size + 6 else 2
+                elif block_max_size > body_size + 0.3 and block_bold and len(btext) < 100:
+                    is_heading = True
+                    level = 3
+
+                if is_heading:
+                    prefix = "#" * max(1, level)
+                    md_lines.append(f"\n{prefix} {btext}\n")
+                    sections.append({
+                        "title": btext,
+                        "level": level,
+                        "page": page_num,
+                    })
+                else:
+                    md_lines.append(btext)
+
+        page_count = len(doc)
+        doc.close()
+        markdown = "\n".join(md_lines)
+        return markdown, sections, page_count
 
     def _run_marker(self, pdf_path: str) -> tuple[str, list[dict], int]:
         """Run marker-pdf conversion (sync, call from thread)."""

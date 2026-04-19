@@ -52,7 +52,7 @@ collect → pdf_fetch → pdf_parse → processor → analyzer → sync
 | VectorStore | `backend/core/vector_store.py` | ChromaDB 持久化封装 |
 | CollectorService | `backend/collectors/service.py` | arXiv/HuggingFace 采集 |
 | PdfFetcher | `backend/pdf/fetcher.py` | PDF 下载 |
-| PdfParser | `backend/pdf/parser.py` | marker-pdf 全文提取（OCR disabled, MPS patched） |
+| PdfParser | `backend/pdf/parser.py` | PDF 全文提取（默认 pymupdf + 字号 heading，可切换 marker） |
 | ProcessorService | `backend/processor/service.py` | 分块 + 向量化 |
 | AnalyzerService | `backend/analyzer/service.py` | LLM 深度分析 |
 | ObsidianSyncService | `backend/sync/service.py` | 笔记写入 Obsidian vault |
@@ -151,17 +151,18 @@ async def db(tmp_path):
 
 当前使用 SiliconFlow（OpenAI 兼容 API）：
 - **Base URL**: `https://api.siliconflow.cn/v1`
-- **LLM**: `Qwen/Qwen3-VL-235B-A22B-Thinking`（thinking 模型，reasoning 内容在 `reasoning_content` 字段，不混入 `content`）
+- **LLM**: `deepseek-ai/DeepSeek-V3.2`（thinking 模型，默认启用，`thinking_budget=32768`）
 - **Embedding**: `Qwen/Qwen3-Embedding-8B`
-- **限流**: TPM 限制较严格，full-text 分析（每篇 10-60K tokens）时必须控制并发（建议 concurrency=1 + 间隔 5-10s）
+- **并发**: full-text 评测实测 MAX_CONCURRENCY=3 稳定（20 篇共 548s，成功率 19/20，唯一失败是 `reasoning_content` 陷阱，见下文）
 - **配置**: `settings.yaml`（API key 通过 `${SILICONFLOW_API_KEY}` 环境变量注入）
 
 ### LLMClient 注意事项
 
 - `chat_json()` 内置 `_extract_json()`：strip `<think>` blocks → strip markdown fences → brace-depth JSON 提取
 - 内置 retry（max_retries=2）
-- `response_format: {"type": "json_object"}` 与 Qwen3-Thinking 兼容，不需要移除
+- `response_format: {"type": "json_object"}` 与 thinking 模型兼容
 - 评分分析调用必须设 `temperature=0`
+- V3.2 thinking 配置在 `LLMClient.__init__` 参数 `enable_thinking` / `thinking_budget`，会自动注入 `extra_body`
 
 ### DeepSeek V3.2 `reasoning_content` fallback
 
@@ -172,7 +173,7 @@ msg = response.choices[0].message
 content = msg.content or getattr(msg, "reasoning_content", "") or ""
 ```
 
-见 `scripts/eval_fulltext_both.py:call_v32()`。
+见 `scripts/eval_fulltext_both.py:call_v32()`。⚠️ 当前 `backend/core/llm_client.py:chat_json()` **还没**集成这个 fallback（只评测脚本里有），下次 V3.2 长 prompt 生产流量遇到会报错；作为 TODO 需要合入 `_extract_json` 之前的取值环节。
 
 ### GPT-5.4 via codex exec
 
@@ -189,37 +190,41 @@ content = msg.content or getattr(msg, "reasoning_content", "") or ""
 
 ## PDF 解析
 
-两种选型，按场景选：
+`PdfParser` 支持两种后端，通过 `settings.yaml` 的 `pdf.parser_name` 切换。**生产默认 `pymupdf`**：
 
 | 方案 | 耗时（25页） | 何时用 |
 |------|------------|--------|
-| **PyMuPDF + 字号 heading** | **0.7s** | 批量预分析、LLM 全文评测 — 生产默认选项 |
-| **marker-pdf** (v1.10.2) | 255s | 需要表格/公式重建、扫描 PDF — 精细分析 |
+| **pymupdf**（默认） | **~0.5s** | 批量解析、LLM 全文评测、绝大多数 arXiv 论文 |
+| marker（可选） | ~4 分钟 | 需要精确表格/公式重建、扫描 PDF、需要 Layout 语义 |
 
-PyMuPDF 实现见 `scripts/build_fulltext_prompts.py`，对 arXiv 原生 PDF 在 20 篇样本上文本完整度 > 95%，且字号启发式能稳定识别 heading 层级。
+PyMuPDF 路径实现在 `PdfParser._run_pymupdf()`：
+- 用字号统计识别 body size，超过 body+1.5pt 判定为 heading
+- arXiv 原生 PDF 文本完整度 > 95%，heading 层级识别稳定
+- 输出与 marker 一致：`fulltext.md` / `fulltext.txt` / `blocks.json` / `sections.json`
 
-marker-pdf 配置 `disable_ocr=True`（arXiv PDF 是数字原生）：
+marker 路径仍然保留在 `PdfParser._run_marker()`，配置 `disable_ocr=True`：
 - 首次调用需下载模型 (~2.6GB)，之后缓存在 `~/Library/Caches/datalab/`
-- `asyncio.to_thread()` 包装（CPU 密集型同步操作）
 - 不能通过 stdin heredoc 调用（multiprocessing 不兼容），必须用脚本文件
-- 极端加速选项 `force_layout_block="Text"` 可跳过 Foundation 模型推理，提速 ~160 倍但丢失 heading 结构
-- 输出存储在 `data/papers/{paper_id}/extracted/{extraction_id}/fulltext.md`
+- 极端加速选项 `force_layout_block="Text"` 可跳过 Foundation 模型推理，但丢失 heading 结构
+- 输出存储在 `data/papers/{paper_id}/extracted/{extraction_id}/`
 
-### MPS 兼容性
+### MPS 兼容性（marker 路径）
 
-surya 在 Apple Silicon MPS 上有多个 `.item()`/`.max()` 返回垃圾值的 bug（PyTorch MPS kernel 问题）。
-`_patch_surya_mps()` 在 `parser.py` 中自动 patch surya 源码。**pip 升级 surya 后需重新触发 patch。**
+surya 在 Apple Silicon MPS 上有多个 `.item()`/`.max()` 返回垃圾值的 bug（PyTorch MPS kernel 问题）。`_patch_surya_mps()` 在 `parser.py` 中自动 patch surya 源码（仅在 marker 路径首次加载模型时触发）。**pip 升级 surya 后需重新触发 patch。** pymupdf 路径不受影响。
 
-### 性能基准（M5 24GB, 17页 PDF）
+### 性能基准
 
-| 模式 | 每页速度 | 说明 |
-|------|---------|------|
-| CPU | 12.8s/页 | 无需 patch |
-| MPS (patch 后) | 5.6-6.5s/页 | 生产使用，约 2x 提速 |
+| 方案 | 25 页耗时 | Layout 占比 |
+|------|----------|------------|
+| pymupdf | ~0.5s | — |
+| marker 完整模式（MPS） | ~4 min | **Layout Recognition ~91%** |
+| marker `force_layout_block="Text"` | ~8s | Layout 跳过 |
 
-- Layout Recognition 占总耗时 ~70%，是主要瓶颈
+- Layout Recognition 是 marker 的主要瓶颈（Foundation 723M 参数 transformer）
 - 调大 batch_size 在 MPS 上无收益（统一内存带宽瓶颈），默认值最优
 - TableRec 不兼容 MPS 自动 fallback CPU，warning 可忽略
+
+详细 profiling、三方对比数据、选型实测见 `docs/dev-notes/2026-04-20-paper-analysis-pipeline.md`。
 
 ## HuggingFace API
 
@@ -229,13 +234,18 @@ surya 在 Apple Silicon MPS 上有多个 `.item()`/`.max()` 返回垃圾值的 b
 
 ## Prompt 优化经验
 
-评分 prompt 经过 v1→v2→v3 三轮迭代 + v4 peer-review 变体 + 跨模型验证（V3.2 vs GPT-5.4）：
+### 文件组织（2026-04-20 整理）
 
-- **v3**（`backend/analyzer/prompts.py`）：BARS 锚点 + weaknesses-first，温和分布，适合常规打分
-- **v4**（`backend/analyzer/prompts_v4.py`）：ICLR/CVPR peer-review 风格，6 段叙事 + `overall_rating` 类别，弱点深度翻倍
+- **`backend/analyzer/prompts.py`** — 生产单一来源。fulltext-aware v3 变体，BARS 锚点 + weaknesses-first，`AnalyzerService` 唯一导入这个。
+- **`backend/analyzer/prompts_v2.py`** — 历史评测基线（结构上与 prompts.py 不同），仅 `eval_prompt.py` 的版本注册表引用，用于复现老实验。
+- **`backend/analyzer/prompts_v4.py`** — ICLR/CVPR peer-review 风格变体，6 段叙事 + `overall_rating`，仅评测脚本使用。
+- **不要**再创建 `prompts_v3.py`：生产 `prompts.py` 就是 v3，版本号只用于评测对照变体。
+
+### 关键结论
+
 - `score_total` 不由 LLM 输出，Python 侧从 `score_breakdown` 计算
 - 子分数排序跨模型一致性高 (Spearman 0.75-0.90)，说明模型判断有意义
-- HF likes 与学术质量弱相关 (Spearman ~0.1)，不适合作为评分 ground truth
+- HF likes 与学术质量弱相关 (Spearman ~0.1)，不适合作为评分 ground truth — 用双轨展示，见下文
 - 评估工具在 `scripts/eval_prompt.py` 和 `scripts/eval_fulltext_*.py`
 
 ### 选型建议（20 篇全文评测实测）

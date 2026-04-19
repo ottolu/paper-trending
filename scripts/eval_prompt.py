@@ -30,12 +30,15 @@ PROMPT_VERSIONS = {}
 
 
 def _load_prompt_version(version: str):
-    if version == "v1":
+    # `prompts.py` is the single production prompt (fulltext-aware v3).
+    # Numbered files only exist as historical eval baselines; delete when
+    # no longer needed for reproducibility.
+    if version in ("v1", "v3", "current", "production"):
         from backend.analyzer.prompts import ANALYSIS_SYSTEM_PROMPT, build_analysis_prompt
     elif version == "v2":
         from backend.analyzer.prompts_v2 import ANALYSIS_SYSTEM_PROMPT, build_analysis_prompt
-    elif version == "v3":
-        from backend.analyzer.prompts_v3 import ANALYSIS_SYSTEM_PROMPT, build_analysis_prompt
+    elif version == "v4":
+        from backend.analyzer.prompts_v4 import ANALYSIS_SYSTEM_PROMPT, build_analysis_prompt
     else:
         raise ValueError(f"Unknown prompt version: {version}")
     return ANALYSIS_SYSTEM_PROMPT, build_analysis_prompt
