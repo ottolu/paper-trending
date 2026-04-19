@@ -103,3 +103,30 @@ Optimize the analyzer prompt to produce meaningful score discrimination and high
 4. 重跑 30 篇测试集 + 10 篇 held-out
 5. 量化对比（metrics 表格）+ 定性抽检
 6. 检查收敛条件
+
+---
+
+## Addendum: v4 peer-review prompt (2026-04-20)
+
+v3 之外新增 `prompts_v4.py`，参考 ICLR/CVPR 审稿结构重写：
+
+- **叙事字段 6 段式**：summary / strengths / weaknesses / key_questions / limitations / overall_impression
+- **保留现有 score_breakdown 4 维度**（backward compat）
+- **新增 `overall_rating`**：Strong Accept → Strong Reject，与数值分数互为校准
+
+### 20 篇 full-text 对比（相对 v3）
+
+| 模型 | 均分 Δ | stdev Δ | 弱点/篇 Δ | Spearman(v3,v4) |
+|------|--------|---------|-----------|-----------------|
+| V3.2 | +0.5 | 2.98→3.42 | 3.8→6.1 | 0.787 |
+| GPT-5.4 | -1.6 | 2.59→2.49 | 5.8→7.5 | 0.903 |
+
+**关键观察：**
+- V3.2 遇 v4 拉升分数（能打 Strong Accept）
+- GPT-5.4 遇 v4 压低分数（更像严格 reviewer），内部排序极稳定
+- v4 下两模型排序更一致（Spearman 0.814 vs v3 的 0.751）
+- `overall_rating` 与 score_breakdown 内部一致性 95%（规则约束起作用）
+
+**v4 待修问题：** 短论文 bias — 7 页短文在 v4 被高估。后续 rubric 需加"论文长度/深度是否匹配声明"的检查。
+
+详细分析见 `docs/dev-notes/2026-04-20-paper-analysis-pipeline.md`。

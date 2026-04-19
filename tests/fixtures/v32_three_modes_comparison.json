@@ -1,0 +1,145 @@
+{
+  "common_papers": 20,
+  "modes": {
+    "abstract_only": {
+      "score_total_stats": {
+        "n": 20,
+        "min": 19,
+        "max": 29,
+        "mean": 23.6,
+        "median": 24.0,
+        "stdev": 2.78
+      },
+      "dim_stats": {
+        "novelty": {
+          "n": 20,
+          "min": 5,
+          "max": 7,
+          "mean": 5.95,
+          "median": 6.0,
+          "stdev": 0.89
+        },
+        "rigor": {
+          "n": 20,
+          "min": 3,
+          "max": 7,
+          "mean": 4.85,
+          "median": 5.0,
+          "stdev": 1.04
+        },
+        "impact": {
+          "n": 20,
+          "min": 4,
+          "max": 8,
+          "mean": 5.85,
+          "median": 6.0,
+          "stdev": 0.93
+        },
+        "clarity": {
+          "n": 20,
+          "min": 6,
+          "max": 8,
+          "mean": 6.95,
+          "median": 7.0,
+          "stdev": 0.51
+        }
+      },
+      "avg_weaknesses": 2.8
+    },
+    "truncated_30K": {
+      "score_total_stats": {
+        "n": 20,
+        "min": 21,
+        "max": 30,
+        "mean": 27.15,
+        "median": 28.0,
+        "stdev": 2.32
+      },
+      "dim_stats": {
+        "novelty": {
+          "n": 20,
+          "min": 5,
+          "max": 7,
+          "mean": 6.4,
+          "median": 7.0,
+          "stdev": 0.82
+        },
+        "rigor": {
+          "n": 20,
+          "min": 5,
+          "max": 8,
+          "mean": 6.6,
+          "median": 7.0,
+          "stdev": 0.82
+        },
+        "impact": {
+          "n": 20,
+          "min": 4,
+          "max": 7,
+          "mean": 6.6,
+          "median": 7.0,
+          "stdev": 0.82
+        },
+        "clarity": {
+          "n": 20,
+          "min": 6,
+          "max": 8,
+          "mean": 7.55,
+          "median": 8.0,
+          "stdev": 0.6
+        }
+      },
+      "avg_weaknesses": 3.6
+    },
+    "complete_fulltext": {
+      "score_total_stats": {
+        "n": 20,
+        "min": 19,
+        "max": 30,
+        "mean": 26.2,
+        "median": 27.0,
+        "stdev": 2.98
+      },
+      "dim_stats": {
+        "novelty": {
+          "n": 20,
+          "min": 5,
+          "max": 7,
+          "mean": 5.95,
+          "median": 6.0,
+          "stdev": 0.94
+        },
+        "rigor": {
+          "n": 20,
+          "min": 4,
+          "max": 8,
+          "mean": 6.55,
+          "median": 7.0,
+          "stdev": 1.15
+        },
+        "impact": {
+          "n": 20,
+          "min": 4,
+          "max": 7,
+          "mean": 6.25,
+          "median": 6.0,
+          "stdev": 0.85
+        },
+        "clarity": {
+          "n": 20,
+          "min": 6,
+          "max": 8,
+          "mean": 7.45,
+          "median": 8.0,
+          "stdev": 0.69
+        }
+      },
+      "avg_weaknesses": 3.75
+    }
+  },
+  "spearman": {
+    "abstract_vs_truncated": 0.742,
+    "abstract_vs_fulltext": 0.446,
+    "truncated_vs_fulltext": 0.505
+  }
+}

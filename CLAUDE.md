@@ -151,6 +151,25 @@ async def db(tmp_path):
 - `response_format: {"type": "json_object"}` 与 Qwen3-Thinking 兼容，不需要移除
 - 评分分析调用必须设 `temperature=0`
 
+### DeepSeek V3.2 `reasoning_content` fallback
+
+V3.2 在长 prompt (>99K chars) 偶发：`content=""`，`finish_reason="stop"`，但完整 JSON 被放到了 `reasoning_content` 字段。调用层必须有 fallback：
+
+```python
+msg = response.choices[0].message
+content = msg.content or getattr(msg, "reasoning_content", "") or ""
+```
+
+见 `scripts/eval_fulltext_both.py:call_v32()`。
+
+### GPT-5.4 via codex exec
+
+`gpt-5.4` 有两个独立 quota：
+- OpenAI API key（常规 `AsyncOpenAI` 走这个）
+- ChatGPT 账户（`codex exec` 走 OAuth token）
+
+用 codex OAuth token 通过 API 访问 gpt-5.4 会 429。生产跑 GPT-5.4 直接走 `codex exec`（见 `scripts/eval_fulltext_gpt54_v3.py`），跳过 API 尝试可省 30s/篇。
+
 ### StageRunner 注意事项
 
 - `claim()` 有 `max_attempts=5` 上限，超过后自动标记为 failed
@@ -158,10 +177,20 @@ async def db(tmp_path):
 
 ## PDF 解析
 
-使用 marker-pdf (v1.10.2) + surya-ocr (v0.17.1)，配置 `disable_ocr=True`（arXiv PDF 是数字原生，不需要 OCR）：
+两种选型，按场景选：
+
+| 方案 | 耗时（25页） | 何时用 |
+|------|------------|--------|
+| **PyMuPDF + 字号 heading** | **0.7s** | 批量预分析、LLM 全文评测 — 生产默认选项 |
+| **marker-pdf** (v1.10.2) | 255s | 需要表格/公式重建、扫描 PDF — 精细分析 |
+
+PyMuPDF 实现见 `scripts/build_fulltext_prompts.py`，对 arXiv 原生 PDF 在 20 篇样本上文本完整度 > 95%，且字号启发式能稳定识别 heading 层级。
+
+marker-pdf 配置 `disable_ocr=True`（arXiv PDF 是数字原生）：
 - 首次调用需下载模型 (~2.6GB)，之后缓存在 `~/Library/Caches/datalab/`
 - `asyncio.to_thread()` 包装（CPU 密集型同步操作）
 - 不能通过 stdin heredoc 调用（multiprocessing 不兼容），必须用脚本文件
+- 极端加速选项 `force_layout_block="Text"` 可跳过 Foundation 模型推理，提速 ~160 倍但丢失 heading 结构
 - 输出存储在 `data/papers/{paper_id}/extracted/{extraction_id}/fulltext.md`
 
 ### MPS 兼容性
@@ -188,16 +217,34 @@ surya 在 Apple Silicon MPS 上有多个 `.item()`/`.max()` 返回垃圾值的 b
 
 ## Prompt 优化经验
 
-评分 prompt 经过 v1→v2→v3 三轮迭代 + 跨模型验证（Qwen3 vs GPT-5.4），关键发现：
-- 当前 prompt 在 `backend/analyzer/prompts.py`（v3，带 BARS 锚点 + weaknesses-first）
-- `score_total` 不由 LLM 输出，在 Python 侧从 `score_breakdown` 子分数计算
-- Qwen3 的 rigor/clarity 子分数存在系统性虚高（几乎全给 8），GPT-5.4 更有区分度
-- 子分数排序跨模型一致性高 (Spearman 0.6-0.7)，说明模型判断有意义
+评分 prompt 经过 v1→v2→v3 三轮迭代 + v4 peer-review 变体 + 跨模型验证（V3.2 vs GPT-5.4）：
+
+- **v3**（`backend/analyzer/prompts.py`）：BARS 锚点 + weaknesses-first，温和分布，适合常规打分
+- **v4**（`backend/analyzer/prompts_v4.py`）：ICLR/CVPR peer-review 风格，6 段叙事 + `overall_rating` 类别，弱点深度翻倍
+- `score_total` 不由 LLM 输出，Python 侧从 `score_breakdown` 计算
+- 子分数排序跨模型一致性高 (Spearman 0.75-0.90)，说明模型判断有意义
 - HF likes 与学术质量弱相关 (Spearman ~0.1)，不适合作为评分 ground truth
-- 评估工具和历史结果在 `scripts/eval_prompt.py` 和 `data/eval_results/`
+- 评估工具在 `scripts/eval_prompt.py` 和 `scripts/eval_fulltext_*.py`
+
+### 选型建议（20 篇全文评测实测）
+
+| 场景 | 组合 | 特点 |
+|------|------|------|
+| 常规推荐（面向用户） | V3.2 × v3 | 温和，σ=2.98，80s/篇 |
+| 精选榜单（严格筛选） | **GPT-5.4 × v4** | 最深 narrative（7.5 弱点/篇），偏 Reject |
+| 成本敏感/快速通道 | GPT-5.4 × v3 | 35s/篇，最快 |
+
+### Analysis basis 规则
+
+- **abstract-only 禁用于最终分析**：系统性低估（均分 -2.6），信度只有 0.6
+- **截断 30K 不安全**：和全文 Spearman 仅 0.505，约一半论文排序会变
+- **全文模式必选**：差异化最强（σ 最大），能正确判断短论文/大 benchmark
+
+详细 profiling 与对比数据：`docs/dev-notes/2026-04-20-paper-analysis-pipeline.md`
 
 ## Design Docs
 
 - 设计文档: `docs/superpowers/specs/2026-04-12-llm-paper-tracker-design.md`
 - 实现计划: `docs/superpowers/plans/` (Plan 1-9)
 - Prompt 优化计划: `docs/prompt-optimization-plan.md`
+- 开发笔记: `docs/dev-notes/`
