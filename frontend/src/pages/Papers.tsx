@@ -53,6 +53,7 @@ export default function Papers() {
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Title</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Score</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">HF ♥</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Tags</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Basis</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
@@ -69,6 +70,11 @@ export default function Papers() {
                     <td className="px-6 py-4">
                       <span className={`font-bold ${(paper.score_total ?? 0) >= 8 ? 'text-green-600' : 'text-gray-700'}`}>
                         {paper.score_total ?? '—'}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4">
+                      <span className={`text-sm ${(paper.hf_likes ?? 0) >= 50 ? 'font-semibold text-pink-600' : 'text-gray-600'}`}>
+                        {paper.hf_likes ?? '—'}
                       </span>
                     </td>
                     <td className="px-6 py-4">

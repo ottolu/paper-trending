@@ -22,7 +22,7 @@ export default function PaperDetail() {
         <p className="text-sm text-gray-500 mt-1">
           {paper.authors?.join(', ')} | {paper.published_date || 'Unknown date'}
         </p>
-        <div className="flex gap-2 mt-2">
+        <div className="flex flex-wrap gap-2 mt-2 items-center">
           {paper.arxiv_id && (
             <a href={`https://arxiv.org/abs/${paper.arxiv_id}`} target="_blank" rel="noopener noreferrer"
                className="text-sm text-blue-600 hover:underline">
@@ -35,6 +35,12 @@ export default function PaperDetail() {
               {s.source_name}
             </a>
           ))}
+          {paper.hf_likes != null && (
+            <span className="inline-flex items-center gap-1 text-sm font-medium text-pink-600">
+              <span>♥</span>
+              <span>{paper.hf_likes} on HuggingFace</span>
+            </span>
+          )}
         </div>
       </div>
 

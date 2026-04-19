@@ -135,6 +135,18 @@ async def db(tmp_path):
 
 - **论文分析必须基于 PDF 全文**：不能用 abstract-only 来分析论文。所有分析都需要先经过 PDF 解析（marker-pdf）提取全文，再送入 LLM 分析。abstract-only 模式只能用于快速预筛，不能作为最终分析依据。
 
+- **研发过程中产出的经验必须落到 `docs/dev-notes/`**：以下场景结束后，必须写/更新 dev-note，不能只存在于对话里：
+  - profiling / 性能基准对比（不同方案、不同模型、不同参数的量化结果）
+  - prompt 迭代的 before/after 对比（score 分布、stdev、排名相关性、narrative 深度）
+  - 发现的反直觉结论或系统性错位（比如 HF likes vs 学术评分错位）
+  - 设计决策的理由与被拒绝的替代方案（为什么选 A 不选 B）
+  - 踩坑 recipe（比如 V3.2 `reasoning_content` fallback、marker stdin 不兼容 multiprocessing）
+  - 新组件或新 prompt 的选型建议表（什么场景用什么）
+  - 文件名：`docs/dev-notes/YYYY-MM-DD-<topic>.md`
+  - 一个主题一篇，完成就写，不攒；CLAUDE.md 里只留提炼后的规则/结论，原始数据留在 dev-note
+  - 写完后在相关 CLAUDE.md 段落末尾加"详见 dev-note"指针，让未来 session 能找到
+  - 触发词：用户让"总结经验"、"记录一下"、"出个对比"、"做 profiling"、"对比看看差异"、"记到 XX 里"等，大概率需要 dev-note
+
 ## LLM / Embedding 服务
 
 当前使用 SiliconFlow（OpenAI 兼容 API）：
@@ -239,6 +251,14 @@ surya 在 Apple Silicon MPS 上有多个 `.item()`/`.max()` 返回垃圾值的 b
 - **abstract-only 禁用于最终分析**：系统性低估（均分 -2.6），信度只有 0.6
 - **截断 30K 不安全**：和全文 Spearman 仅 0.505，约一半论文排序会变
 - **全文模式必选**：差异化最强（σ 最大），能正确判断短论文/大 benchmark
+
+### 评分 vs HF likes：双轨展示，不混合
+
+- LLM 评分**只衡量论文内容本身的学术质量**（novelty/rigor/impact/clarity），不因作者机构、产品热度、HF likes 加分
+- HF likes 作为**独立的社区兴趣信号**并列展示，不混入 `score_total`
+- 不要做 ensemble 加权（如 `0.7×LLM + 0.3×log(likes)`）— 混合不同语义信号会让分数失去解释性
+- 不要为 "product tech report" 类型加专属 rubric — 需要分类检测，破坏跨论文可比性
+- 典型错位案例：字节 Seedance 2.0（HF likes=134，4 个评测组合都 Reject / Weak Reject）— 刻意不公开方法的产品 tech report 系统性低分是**正确行为**，详见 dev-note
 
 详细 profiling 与对比数据：`docs/dev-notes/2026-04-20-paper-analysis-pipeline.md`
 

@@ -249,3 +249,58 @@ Parsed PDF 中间件：`data/parsing_fulltext/{arxiv_id}/` 下含 `fulltext.md`�
 3. **探索 ensemble 打分**：V3.2 × v3 + GPT-5.4 × v4 加权平均，利用两者分布差异
 4. **HF likes 相关性基准**：v4 prompt 的排名和 HF likes 相关性是否高于 v3（值得单独测）
 5. **长 prompt 的 V3.2 `reasoning_content` 问题**：在 SiliconFlow 侧反馈，或考虑切换到 SGLang 自部署
+
+---
+
+## 8. 设计决策记录：分数 vs HF likes 双轨展示
+
+### 触发案例：Seedance 2.0 低分
+
+字节 Seed 团队 Seedance 2.0 tech report (arXiv 2604.14148, HF likes=134)，4 个评测组合全部给低分：
+
+| 组合 | score_total |
+|------|------------|
+| V3.2 × v3 | 24 |
+| V3.2 × v4 | 21 (Weak Reject) |
+| GPT-5.4 × v3 | 21 |
+| GPT-5.4 × v4 | 20 (**Reject**) |
+
+**4 个独立评测的 weaknesses 高度一致**，全在第一条点出：论文刻意不公开模型架构/训练数据/训练流程（商业机密），只讲能力宣传和自建 benchmark 评测，没有 ablation、没有开源模型对比、没有统计检验。
+
+论文结构完全印证：只有 Introduction / Evaluation (2.1-2.6) / References / Contributions — **没有 Methodology 章节**。
+
+### 根本原因：rubric 与论文类型错位
+
+- **评测 prompt 衡量学术贡献**（novelty / rigor / impact / clarity 都依赖论文内容）
+- **HF likes 衡量产品热度 / 社区兴趣**（品牌 + 视频演示效果）
+- 对"大厂产品 tech report 刻意不公开方法"这一类型，两者**系统性错位**
+- 这也解释了历史统计中 HF likes 与 LLM score 的 Spearman 仅 ~0.1（见 CLAUDE.md）
+
+### 决策：双轨展示，不混合
+
+**评分体系保持纯学术判断**：
+- 不为作者机构、产品热度、HF likes 加分
+- rubric 和论文内容严格对齐（跟 ICLR/NeurIPS 审稿一致）
+- 四象限评测结果全部反映内容本身的学术质量
+
+**展示侧并列暴露 `hf_likes`**：
+- Dashboard / Papers 列表 / PaperDetail 页都应显示 HF likes 作为独立信号
+- 用户自行综合判断"产品热门 vs 学术价值"
+- Seedance 2.0 这种论文靠 HF likes 仍能上榜，但不污染评分体系
+
+### 被拒绝的替代方案及理由
+
+| 方案 | 拒绝理由 |
+|------|---------|
+| 为 tech report 加专属 rubric (v5) | 需要分类检测，破坏跨论文可比性 |
+| Ensemble 评分 `final = 0.7×LLM + 0.3×log(HF)` | 混合不同语义的信号，让分数失去解释性 |
+| 提高 impact 权重（大厂工作显然 impact 高） | 变成奖励作者机构，偏离内容评审本意 |
+
+### 实现状态（2026-04-20 完成）
+
+- [x] `backend/api/papers.py`：列表响应加 `hf_likes` 字段（`SELECT MAX(hf_likes) FROM paper_sources`），详情响应同样加 `hf_likes` 顶层字段；新增 `sort=hf_likes_desc` 选项
+- [x] `frontend/src/api.ts`：`PaperListItem` 和 `PaperDetail` 都加 `hf_likes: number | null`
+- [x] `frontend/src/pages/Papers.tsx`：表格加 `HF ♥` 列（≥50 时高亮 pink）
+- [x] `frontend/src/pages/PaperDetail.tsx`：头部作者/sources 行追加 `♥ {hf_likes} on HuggingFace`，与 Score 卡片并列不混合
+- [x] `frontend/src/pages/Dashboard.tsx`：新增 "Community Buzz" 专区，按 `hf_likes_desc` 排序，与 Recent Papers 两列并排；卡片同时展示 Score 和 ♥，明确两个信号独立
+- 验收：`pytest tests/backend/test_api/test_papers.py` 7/7 通过；`ruff check` 通过；`frontend npm run build` 成功

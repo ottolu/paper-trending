@@ -47,6 +47,7 @@ async def list_papers(
         "updated_at_asc": "p.updated_at ASC",
         "score_desc": "ar.score_total DESC",
         "score_asc": "ar.score_total ASC",
+        "hf_likes_desc": "(SELECT MAX(hf_likes) FROM paper_sources WHERE paper_id = p.id) DESC",
     }
     order_by = sort_map.get(sort, "p.updated_at DESC")
 
@@ -62,7 +63,8 @@ async def list_papers(
     offset = (page - 1) * page_size
     rows = await db.fetch_all(
         f"SELECT p.id, p.title, p.arxiv_id, p.published_date, p.first_seen_at, "
-        f"ar.score_total, ar.tags, ar.analysis_basis, ar.evidence_level "
+        f"ar.score_total, ar.tags, ar.analysis_basis, ar.evidence_level, "
+        f"(SELECT MAX(hf_likes) FROM paper_sources WHERE paper_id = p.id) AS hf_likes "
         f"FROM papers p "
         f"LEFT JOIN paper_analysis pa ON pa.paper_id = p.id "
         f"LEFT JOIN analysis_runs ar ON ar.id = pa.active_analysis_run_id "
@@ -85,6 +87,7 @@ async def list_papers(
             "published_date": r["published_date"],
             "first_seen_at": r["first_seen_at"],
             "score_total": r["score_total"],
+            "hf_likes": r["hf_likes"],
             "tags": tags,
             "analysis_basis": r["analysis_basis"],
             "evidence_level": r["evidence_level"],
@@ -130,9 +133,13 @@ async def get_paper(paper_id: str):
     sources = await db.fetch_all(
         "SELECT * FROM paper_sources WHERE paper_id = ?", (paper_id,)
     )
+    sources_list = [dict(s) for s in sources]
+    hf_likes_vals = [s.get("hf_likes") for s in sources_list if s.get("hf_likes") is not None]
+    hf_likes = max(hf_likes_vals) if hf_likes_vals else None
 
     return {
         **paper_dict,
+        "hf_likes": hf_likes,
         "analysis": analysis,
-        "sources": [dict(s) for s in sources],
+        "sources": sources_list,
     }

@@ -7,6 +7,7 @@ export interface PaperListItem {
   published_date: string | null
   first_seen_at: string
   score_total: number | null
+  hf_likes: number | null
   tags: string[]
   analysis_basis: string | null
   evidence_level: string | null
@@ -28,6 +29,7 @@ export interface PaperDetail {
   arxiv_categories: string[]
   published_date: string | null
   first_seen_at: string
+  hf_likes: number | null
   analysis: {
     factual_summary: string
     methodology_inference: string
