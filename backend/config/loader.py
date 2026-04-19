@@ -14,6 +14,8 @@ class LLMConfig(BaseModel):
     api_key: str = ""
     model: str = "gpt-4o"
     prompt_version: str = "analysis_v1"
+    enable_thinking: bool = False
+    thinking_budget: int = 32768
 
     @model_validator(mode="after")
     def _resolve_api_key(self):

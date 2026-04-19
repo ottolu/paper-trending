@@ -53,11 +53,25 @@ def _extract_json(raw: str) -> dict:
 
 
 class LLMClient:
-    def __init__(self, base_url: str, api_key: str, model: str):
+    def __init__(
+        self,
+        base_url: str,
+        api_key: str,
+        model: str,
+        enable_thinking: bool = False,
+        thinking_budget: int = 32768,
+    ):
         self.model = model
+        self.enable_thinking = enable_thinking
+        self.thinking_budget = thinking_budget
         self._client = AsyncOpenAI(base_url=base_url, api_key=api_key)
 
     async def chat(self, messages: list[dict], **kwargs) -> str:
+        if self.enable_thinking:
+            extra = kwargs.pop("extra_body", {})
+            extra.setdefault("enable_thinking", True)
+            extra.setdefault("thinking_budget", self.thinking_budget)
+            kwargs["extra_body"] = extra
         response = await self._client.chat.completions.create(
             model=self.model, messages=messages, **kwargs
         )

@@ -131,6 +131,10 @@ async def db(tmp_path):
 - `backfill_jobs` / `backfill_job_days` — 回填任务追踪
 - `sync_log` — Obsidian 同步记录（SHA256 校验幂等）
 
+## Important Rules
+
+- **论文分析必须基于 PDF 全文**：不能用 abstract-only 来分析论文。所有分析都需要先经过 PDF 解析（marker-pdf）提取全文，再送入 LLM 分析。abstract-only 模式只能用于快速预筛，不能作为最终分析依据。
+
 ## LLM / Embedding 服务
 
 当前使用 SiliconFlow（OpenAI 兼容 API）：
@@ -138,7 +142,7 @@ async def db(tmp_path):
 - **LLM**: `Qwen/Qwen3-VL-235B-A22B-Thinking`（thinking 模型，reasoning 内容在 `reasoning_content` 字段，不混入 `content`）
 - **Embedding**: `Qwen/Qwen3-Embedding-8B`
 - **限流**: TPM 限制较严格，full-text 分析（每篇 10-60K tokens）时必须控制并发（建议 concurrency=1 + 间隔 5-10s）
-- **配置**: `settings.yaml`（已 gitignore）
+- **配置**: `settings.yaml`（API key 通过 `${SILICONFLOW_API_KEY}` 环境变量注入）
 
 ### LLMClient 注意事项
 
