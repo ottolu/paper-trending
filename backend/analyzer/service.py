@@ -6,11 +6,24 @@ import json
 import logging
 from pathlib import Path
 
-from backend.analyzer.prompts import build_analysis_prompt
+from backend.analyzer.prompts import PROMPT_VERSION, build_analysis_prompt
 from backend.core.database import Database
 from backend.core.stage_runner import StageRunner
 
 logger = logging.getLogger(__name__)
+
+
+def score_total_from_breakdown(breakdown: dict | None) -> float:
+    """Compute score_total as the mean of the numeric sub-scores.
+
+    The v3 prompt deliberately does NOT emit score_total (see prompts.py); it is
+    computed here so the breakdown stays the single source of truth. Matches the
+    eval scripts' formula: round(mean(values), 2).
+    """
+    if not isinstance(breakdown, dict):
+        return 0.0
+    vals = [v for v in breakdown.values() if isinstance(v, (int, float))]
+    return round(sum(vals) / len(vals), 2) if vals else 0.0
 
 
 class AnalyzerService:
@@ -57,12 +70,16 @@ class AnalyzerService:
             messages = build_analysis_prompt(manifest)
             analysis = await self._llm.chat_json(messages, temperature=0)
 
+            breakdown = analysis.get("score_breakdown", {})
+            score_total = score_total_from_breakdown(breakdown)
+
             analysis_run_id = await self._db.execute(
                 "INSERT INTO analysis_runs (paper_id, chunk_manifest_path, chunk_manifest_hash, "
                 "input_hash, factual_summary, methodology_inference, innovation_points, "
                 "key_takeaways, score_total, score_breakdown, tags, evidence_level, "
-                "analysis_basis, evidence_citations, confidence, status, analyzed_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'succeeded', datetime('now'))",
+                "analysis_basis, evidence_citations, confidence, analysis_model, prompt_version, "
+                "status, analyzed_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'succeeded', datetime('now'))",
                 (
                     paper_id,
                     manifest_path,
@@ -72,13 +89,15 @@ class AnalyzerService:
                     analysis.get("methodology_inference", ""),
                     json.dumps(analysis.get("innovation_points", [])),
                     json.dumps(analysis.get("key_takeaways", [])),
-                    analysis.get("score_total", 0),
-                    json.dumps(analysis.get("score_breakdown", {})),
+                    score_total,
+                    json.dumps(breakdown),
                     json.dumps(analysis.get("tags", [])),
                     analysis.get("evidence_level", "limited"),
                     analysis_basis,
                     json.dumps(analysis.get("evidence_citations", [])),
                     analysis.get("confidence", 0),
+                    getattr(self._llm, "model", None),
+                    PROMPT_VERSION,
                 ),
             )
 
