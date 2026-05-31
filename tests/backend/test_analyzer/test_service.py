@@ -32,6 +32,7 @@ def data_root(tmp_path):
 @pytest.fixture
 def mock_llm():
     client = AsyncMock()
+    client.model = "test-model"
     client.chat_json = AsyncMock(return_value={
         "factual_summary": "This paper studies scaling laws.",
         "methodology_inference": "Empirical evaluation across model sizes.",
@@ -149,3 +150,60 @@ async def test_process_creates_sync_stage_run(service, db, stage_runner, data_ro
 async def test_process_next_returns_false_when_no_tasks(service):
     result = await service.process_next()
     assert result is False
+
+
+@pytest.fixture
+def mock_llm_no_total():
+    """Mirrors the production v3 prompt: emits score_breakdown but NOT score_total."""
+    client = AsyncMock()
+    client.model = "test-model"
+    client.chat_json = AsyncMock(return_value={
+        "factual_summary": "S",
+        "methodology_inference": "M",
+        "innovation_points": ["i"],
+        "key_takeaways": ["k"],
+        "score_breakdown": {"novelty": 6, "rigor": 7, "impact": 7, "clarity": 8},
+        "tags": ["t"],
+        "evidence_level": "moderate",
+        "evidence_citations": [],
+        "confidence": 0.8,
+    })
+    return client
+
+
+@pytest.fixture
+def service_no_total(db, stage_runner, data_root, mock_llm_no_total, mock_embedding, mock_vector_store):
+    return AnalyzerService(
+        db=db,
+        stage_runner=stage_runner,
+        paper_root=data_root,
+        llm_client=mock_llm_no_total,
+        embedding_client=mock_embedding,
+        vector_store=mock_vector_store,
+    )
+
+
+async def test_score_total_computed_as_mean_of_breakdown_when_llm_omits_it(
+    service_no_total, db, data_root
+):
+    # v3 prompt deliberately omits score_total; Python computes it as the mean
+    # of the breakdown sub-scores. mean({6,7,7,8}) == 7.0
+    await _setup_paper_with_manifest(db, data_root)
+    await service_no_total.process_next()
+
+    row = await db.fetch_one(
+        "SELECT score_total FROM analysis_runs WHERE paper_id = ?", ("paper-001",)
+    )
+    assert row["score_total"] == 7.0
+
+
+async def test_records_analysis_model_and_prompt_version(service_no_total, db, data_root):
+    await _setup_paper_with_manifest(db, data_root)
+    await service_no_total.process_next()
+
+    row = await db.fetch_one(
+        "SELECT analysis_model, prompt_version FROM analysis_runs WHERE paper_id = ?",
+        ("paper-001",),
+    )
+    assert row["analysis_model"] == "test-model"
+    assert row["prompt_version"] == "v3"

@@ -12,6 +12,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import os
 import statistics
 import sys
 import time
@@ -20,10 +21,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from backend.core.database import Database
-from backend.core.embedding_client import EmbeddingClient
 from backend.core.llm_client import LLMClient
-from backend.core.vector_store import VectorStore
-from backend.core.stage_runner import StageRunner
 
 # Prompt version registry
 PROMPT_VERSIONS = {}
@@ -60,7 +58,7 @@ TEST_SET_PATH = DATA_ROOT / "eval_test_set.json"
 RESULTS_DIR = DATA_ROOT / "eval_results"
 
 SF_BASE_URL = "https://api.siliconflow.cn/v1"
-SF_API_KEY = "sk-sazyhdorjrvicvtglqqfwrnogqkoyghudvcxmhnzvdwbxjlp"
+SF_API_KEY = os.environ["SILICONFLOW_API_KEY"]
 LLM_MODEL = "Qwen/Qwen3-VL-235B-A22B-Thinking"
 EMBED_MODEL = "Qwen/Qwen3-Embedding-8B"
 
@@ -156,7 +154,7 @@ async def run_eval(
         metrics["score_distribution"] = dict(sorted(buckets.items()))
 
         # Rank correlation with HF likes (Spearman)
-        if len(scores) > 2 and any(l > 0 for l in likes):
+        if len(scores) > 2 and any(lk > 0 for lk in likes):
             metrics["spearman_vs_likes"] = _spearman(scores, likes)
         else:
             metrics["spearman_vs_likes"] = None
@@ -244,7 +242,7 @@ def print_metrics(metrics: dict, round_name: str):
     print(f"{'=' * 60}")
     print(f"  Papers analyzed: {metrics.get('n', 0)} | Time: {metrics.get('elapsed_seconds', 0)}s")
     print(f"  JSON success rate: {metrics.get('valid_json_rate', 0):.1%}")
-    print(f"\n  SCORES:")
+    print("\n  SCORES:")
     print(f"    Mean: {metrics.get('score_mean', 0):.2f}  Stddev: {metrics.get('score_stddev', 0):.2f}")
     print(f"    Min: {metrics.get('score_min', 0)}  Max: {metrics.get('score_max', 0)}  Range: {metrics.get('score_range', 0)}")
     print(f"    CV: {metrics.get('cv', 0):.3f}")
@@ -252,12 +250,12 @@ def print_metrics(metrics: dict, round_name: str):
 
     dist = metrics.get("score_distribution", {})
     if dist:
-        print(f"\n  DISTRIBUTION:")
+        print("\n  DISTRIBUTION:")
         for bucket in sorted(dist.keys()):
             bar = "#" * dist[bucket]
             print(f"    {bucket}-point: {dist[bucket]:3d} {bar}")
 
-    print(f"\n  SUB-SCORES (mean ± stddev):")
+    print("\n  SUB-SCORES (mean ± stddev):")
     for dim in ["novelty", "rigor", "impact", "clarity"]:
         m = metrics.get(f"{dim}_mean", "?")
         s = metrics.get(f"{dim}_stddev", "?")

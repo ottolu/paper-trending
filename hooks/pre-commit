@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# Pre-commit secret scanner — blocks commits that add API-key-like strings.
+# Installed via:  git config core.hooksPath hooks
+# Bypass a verified false positive with:  ALLOW_SECRET=1 git commit ...
+
+[ "${ALLOW_SECRET:-0}" = "1" ] && exit 0
+
+# Only inspect lines ADDED by this commit.
+added=$(git diff --cached --no-color -U0 | grep -E '^\+' | grep -vE '^\+\+\+')
+[ -z "$added" ] && exit 0
+
+# High-signal token shapes. Short test keys like "sk-test-key-for-config" stay
+# under the length thresholds and are additionally filtered below.
+patterns='sk-[A-Za-z0-9]{32,}|sk-proj-[A-Za-z0-9_-]{20,}|hf_[A-Za-z0-9]{30,}|gh[pousr]_[A-Za-z0-9]{36}|AKIA[0-9A-Z]{16}|xox[baprs]-[A-Za-z0-9-]{10,}'
+
+hits=$(printf '%s\n' "$added" | grep -nE "$patterns" \
+  | grep -viE '\$\{[A-Za-z_]+\}|REDACTED|your[-_]?key|placeholder|example|sk-test')
+
+if [ -n "$hits" ]; then
+  echo "🚫 pre-commit: possible secret in staged changes:" >&2
+  printf '%s\n' "$hits" | sed -E 's/(sk-[A-Za-z0-9]{6})[A-Za-z0-9]+/\1…REDACTED/g' >&2
+  echo "" >&2
+  echo "→ Move secrets to env vars (e.g. \${SILICONFLOW_API_KEY}) or .env (gitignored)." >&2
+  echo "→ Genuine false positive? Re-run with: ALLOW_SECRET=1 git commit ..." >&2
+  exit 1
+fi
+exit 0

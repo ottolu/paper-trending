@@ -38,3 +38,7 @@ pythonpath = ["."]
 [tool.ruff]
 target-version = "py311"
 line-length = 100
+
+[tool.ruff.lint.per-file-ignores]
+# Ops/eval scripts adjust sys.path and load .env before importing the backend package.
+"scripts/*.py" = ["E402"]

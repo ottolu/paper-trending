@@ -144,7 +144,7 @@ def main():
             })
             print(f"  Score: {score} | {bd}")
         else:
-            print(f"  FAILED")
+            print("  FAILED")
 
         time.sleep(2)  # Be gentle
 
@@ -164,7 +164,7 @@ def main():
         for s in scores:
             b = int(s)
             buckets[b] = buckets.get(b, 0) + 1
-        print(f"\n  Distribution:")
+        print("\n  Distribution:")
         for b in sorted(buckets):
             print(f"    {b}-point: {buckets[b]:3d} {'#' * buckets[b]}")
 
@@ -176,7 +176,7 @@ def main():
 
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     out_path = RESULTS_DIR / "cross_model_gpt54_fulltext.json"
-    out_path.write_text(json.dumps({"model": "gpt-5.4", "mode": "full_text", "results": results}, ensure_ascii=False, indent=2))
+    out_path.write_text(json.dumps({"model": "gpt-5.5", "mode": "full_text", "results": results}, ensure_ascii=False, indent=2))
     print(f"\nSaved to {out_path}")
 
 

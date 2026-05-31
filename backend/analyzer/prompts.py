@@ -1,6 +1,10 @@
 """Analysis prompt — calibrated scoring with BARS anchors and full-text support."""
 from __future__ import annotations
 
+# Production prompt version (this module IS the v3 prompt). Recorded on each
+# analysis_run for provenance. Bump when the prompt structure/schema changes.
+PROMPT_VERSION = "v3"
+
 ANALYSIS_SYSTEM_PROMPT = """You are an expert AI research paper analyst. Critically evaluate the paper and produce a calibrated assessment that differentiates quality levels.
 
 Think through your analysis carefully, then output a single JSON object.

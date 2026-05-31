@@ -27,7 +27,7 @@ async def codex_exec(paper: dict) -> tuple[dict, str]:
 
     process = await asyncio.create_subprocess_exec(
         "codex", "exec",
-        "--model", "gpt-5.4",
+        "--model", "gpt-5.5",
         "--color", "never",
         "--ephemeral",
         "--output-last-message", str(output_path),
@@ -70,7 +70,7 @@ async def analyze(sem: asyncio.Semaphore, paper: dict) -> dict:
             "pages": paper["pages"],
             "prompt_file": paper["prompt_file"],
             "prompt_chars": len(paper["prompt_text"]),
-            "model": "gpt-5.4",
+            "model": "gpt-5.5",
             "prompt_version": "v3_current",
             "source": source,
             "elapsed_seconds": elapsed,

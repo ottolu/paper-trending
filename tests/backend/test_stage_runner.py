@@ -95,6 +95,29 @@ async def test_reclaim_expired_lease(db, runner):
     assert reclaimed is not None
     assert reclaimed["worker_id"] == "worker-2"
 
+async def test_claim_is_concurrency_safe(db, runner):
+    # 3 pending tasks, 10 concurrent claimers. The SELECT-then-UPDATE race let
+    # multiple workers grab the same row -> duplicate stage_run_attempts (UNIQUE
+    # violation) / double-claims. Each task must be claimed at most once.
+    import asyncio
+
+    for i in range(3):
+        await _insert_paper(db, f"p{i}")
+        await runner.create(target_type="paper", target_id=f"p{i}", stage="pdf_fetch")
+
+    results = await asyncio.gather(
+        *[runner.claim(stage="pdf_fetch", worker_id=f"w{i}", lease_seconds=300) for i in range(10)]
+    )
+
+    claimed_ids = [r["id"] for r in results if r is not None]
+    assert len(claimed_ids) == 3, f"expected 3 claims, got {len(claimed_ids)}: {claimed_ids}"
+    assert len(set(claimed_ids)) == 3, f"a task was double-claimed: {claimed_ids}"
+
+    attempts = await db.fetch_all("SELECT stage_run_id, attempt_no FROM stage_run_attempts")
+    keys = [(a["stage_run_id"], a["attempt_no"]) for a in attempts]
+    assert len(keys) == len(set(keys)) == 3, f"duplicate attempts: {keys}"
+
+
 async def test_list_by_status(db, runner):
     await _insert_paper(db, "p1")
     await _insert_paper(db, "p2")
