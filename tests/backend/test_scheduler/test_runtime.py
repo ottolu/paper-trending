@@ -1,10 +1,12 @@
+from datetime import date, timedelta
+
 import pytest
 
 from backend.config.loader import load_config
 from backend.core.database import Database
 from backend.core.stage_runner import StageRunner
 from backend.scheduler.pipeline import PipelineRunner, STAGE_ORDER
-from backend.scheduler.runtime import build_pipeline_runner, build_scheduler
+from backend.scheduler.runtime import _previous_complete_week, build_pipeline_runner, build_scheduler
 
 
 @pytest.fixture
@@ -62,3 +64,19 @@ async def test_build_scheduler_registers_three_jobs(db, monkeypatch):
     assert {j.id for j in scheduler.get_jobs()} == {"pipeline_tick", "collect", "report"}
     if scheduler.running:
         scheduler.shutdown(wait=False)  # never started; just dispose
+
+
+@pytest.mark.parametrize(
+    "today",
+    [date(2026, 6, 1), date(2026, 6, 4), date(2026, 6, 7)],  # three different weekdays
+)
+def test_previous_complete_week_returns_prior_monday_to_sunday(today):
+    start, end = _previous_complete_week(today)
+    s = date.fromisoformat(start)
+    e = date.fromisoformat(end)
+    assert s.isoweekday() == 1          # Monday
+    assert e.isoweekday() == 7          # Sunday
+    assert (e - s).days == 6            # a full Mon..Sun week
+    this_monday = today - timedelta(days=today.isoweekday() - 1)
+    assert e == this_monday - timedelta(days=1)   # ended the day before this week's Monday
+    assert s == this_monday - timedelta(days=7)   # the Monday one week earlier

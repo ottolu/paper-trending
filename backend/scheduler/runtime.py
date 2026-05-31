@@ -85,7 +85,13 @@ def build_scheduler(
         except Exception:
             logger.exception("scheduled report failed")
 
-    scheduler.add_job(_tick, IntervalTrigger(seconds=tick_interval_seconds), id="pipeline_tick")
-    scheduler.add_job(_collect, CronTrigger.from_crontab(config.scheduler.collector_cron), id="collect")
-    scheduler.add_job(_report, CronTrigger.from_crontab(config.scheduler.reporter_cron), id="report")
+    scheduler.add_job(
+        _tick, IntervalTrigger(seconds=tick_interval_seconds), id="pipeline_tick"
+    )
+    scheduler.add_job(
+        _collect, CronTrigger.from_crontab(config.scheduler.collector_cron), id="collect"
+    )
+    scheduler.add_job(
+        _report, CronTrigger.from_crontab(config.scheduler.reporter_cron), id="report"
+    )
     return scheduler
