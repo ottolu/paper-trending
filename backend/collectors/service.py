@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import date
+from datetime import date, timedelta
 
 from backend.collectors.arxiv import ArxivFetcher
 from backend.collectors.huggingface import HuggingFaceFetcher
@@ -12,6 +12,8 @@ from backend.core.database import Database
 from backend.core.stage_runner import StageRunner
 
 logger = logging.getLogger(__name__)
+
+ARXIV_PDF_URL = "https://arxiv.org/pdf/{arxiv_id}"  # no extension -> 200 application/pdf
 
 
 class CollectorService:
@@ -59,6 +61,60 @@ class CollectorService:
         return {
             "papers_upserted": papers_upserted,
             "sources_created": sources_created,
+        }
+
+    async def collect_hf_daily(
+        self,
+        target_date: date | None = None,
+        top: int = 15,
+    ) -> dict:
+        """Ingest the top-N NEW papers from one day of HF Daily Papers (by upvotes).
+
+        Each new paper is upserted (which queues a pdf_fetch stage_run). Papers
+        already in the DB are skipped, so re-runs / multi-day trending papers do
+        not re-queue downloads. Defaults to yesterday (the most recent complete day).
+        """
+        target_date = target_date or (date.today() - timedelta(days=1))
+        raw = await self._hf_fetcher.fetch(target_date=target_date)
+        ranked = sorted(raw, key=lambda rp: rp.hf_likes or 0, reverse=True)
+
+        new_count = 0
+        skipped = 0
+        for rp in ranked[:top]:
+            arxiv_id = rp.arxiv_id or rp.source_record_id
+            if not arxiv_id:
+                continue
+            existing = await self._db.fetch_one(
+                "SELECT id FROM papers WHERE id = ?", (arxiv_id,)
+            )
+            if existing:
+                skipped += 1
+                continue
+            lp = LinkedPaper(
+                paper_id=arxiv_id,
+                title=rp.title,
+                authors=rp.authors,
+                abstract=rp.abstract or "",
+                arxiv_id=arxiv_id,
+                arxiv_categories=[],
+                published_date=rp.published_date,
+                pdf_url=ARXIV_PDF_URL.format(arxiv_id=arxiv_id),
+                arxiv_source=None,
+                hf_source=rp,
+                match_strategy="hf_daily",
+                match_confidence=None,
+            )
+            await self.upsert_paper(lp)
+            new_count += 1
+        logger.info(
+            "HF daily collect %s: %d new, %d skipped (top %d)",
+            target_date, new_count, skipped, top,
+        )
+        return {
+            "date": target_date.isoformat(),
+            "new": new_count,
+            "skipped": skipped,
+            "top": top,
         }
 
     async def upsert_paper(self, lp: LinkedPaper) -> dict:
