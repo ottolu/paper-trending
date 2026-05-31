@@ -16,6 +16,7 @@ dependencies = [
     "numpy>=1.26.0",
     "pymupdf>=1.27.0",
     "marker-pdf>=1.10.0",
+    "apscheduler>=3.10,<4",
 ]
 
 [tool.setuptools.packages.find]
