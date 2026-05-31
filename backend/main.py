@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-import asyncio
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+from dotenv import load_dotenv
 from fastapi import FastAPI
 
 from backend.api.deps import set_db, set_embedding_client, set_vector_store
@@ -17,6 +17,7 @@ from backend.core.vector_store import VectorStore
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initialize DB, embedding client, vector store on startup; close on shutdown."""
+    load_dotenv()  # load .env into os.environ before resolving ${...} in settings.yaml
     config_path = os.environ.get("SETTINGS_PATH", "settings.yaml")
     if Path(config_path).exists():
         config = load_config(config_path)

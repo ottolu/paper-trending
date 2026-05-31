@@ -180,7 +180,7 @@ def load_codex_token() -> str:
 
 async def call_gpt54_api(client: AsyncOpenAI, paper: dict) -> tuple[dict, str]:
     response = await client.chat.completions.create(
-        model="gpt-5.4",
+        model="gpt-5.5",
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": paper["prompt_text"]},
@@ -207,7 +207,7 @@ async def codex_exec_fallback(paper: dict) -> tuple[dict, str]:
 
     process = await asyncio.create_subprocess_exec(
         "codex", "exec",
-        "--model", "gpt-5.4",
+        "--model", "gpt-5.5",
         "--color", "never",
         "--ephemeral",
         "--output-last-message", str(output_path),
@@ -283,7 +283,7 @@ async def analyze_gpt54(client: AsyncOpenAI, sem: asyncio.Semaphore, paper: dict
             "pages": paper["pages"],
             "prompt_file": paper["prompt_file"],
             "prompt_chars": len(paper["prompt_text"]),
-            "model": "gpt-5.4",
+            "model": "gpt-5.5",
             "source": source,
             "elapsed_seconds": elapsed,
             **parsed,

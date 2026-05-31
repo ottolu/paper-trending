@@ -21,8 +21,8 @@ def hf_api_response():
                 "summary": "We study empirical scaling laws.",
                 "authors": [{"name": "Alice Smith"}, {"name": "Bob Jones"}],
                 "publishedAt": "2024-01-15T00:00:00.000Z",
+                "upvotes": 42,
             },
-            "numLikes": 42,
             "numComments": 5,
         },
         {
@@ -32,8 +32,8 @@ def hf_api_response():
                 "summary": "We propose a new alignment method.",
                 "authors": [{"name": "Eve Black"}],
                 "publishedAt": "2024-01-15T00:00:00.000Z",
+                "upvotes": 10,
             },
-            "numLikes": 10,
             "numComments": 2,
         },
     ]

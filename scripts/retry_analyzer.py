@@ -7,7 +7,10 @@ import sys
 import time
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
+load_dotenv()
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import logging
@@ -23,9 +26,13 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 logger = logging.getLogger("retry")
 
 DATA_ROOT = Path(__file__).resolve().parent.parent / "data"
+# LLM — DeepSeek official V4 Pro (thinking).
+DS_BASE_URL = "https://api.deepseek.com"
+DS_API_KEY = os.environ["DEEPSEEK_API_KEY"]
+LLM_MODEL = "deepseek-v4-pro"
+# Embedding — SiliconFlow.
 SF_BASE_URL = "https://api.siliconflow.cn/v1"
-SF_API_KEY = "sk-sazyhdorjrvicvtglqqfwrnogqkoyghudvcxmhnzvdwbxjlp"
-LLM_MODEL = "Qwen/Qwen3-VL-235B-A22B-Thinking"
+SF_API_KEY = os.environ["SILICONFLOW_API_KEY"]
 EMBED_MODEL = "Qwen/Qwen3-Embedding-8B"
 
 
@@ -42,7 +49,7 @@ async def main():
         await sr.retry(f["id"])
     logger.info("Reset %d failed analyzer tasks to pending", len(failed))
 
-    llm = LLMClient(base_url=SF_BASE_URL, api_key=SF_API_KEY, model=LLM_MODEL)
+    llm = LLMClient(base_url=DS_BASE_URL, api_key=DS_API_KEY, model=LLM_MODEL, enable_thinking=True)
     embedding = EmbeddingClient(base_url=SF_BASE_URL, api_key=SF_API_KEY, model=EMBED_MODEL)
     vs = VectorStore(persist_dir=str(DATA_ROOT / "chromadb"))
 

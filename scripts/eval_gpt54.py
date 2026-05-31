@@ -14,7 +14,7 @@ FIXTURES_DIR = PROJECT_ROOT / "tests" / "fixtures"
 AUTH_PATH = Path.home() / ".codex" / "auth.json"
 INDEX_PATH = FIXTURES_DIR / "eval_paper_index.json"
 OUTPUT_PATH = FIXTURES_DIR / "eval_results_gpt54.json"
-MODEL_NAME = "gpt-5.4"
+MODEL_NAME = "gpt-5.5"
 MAX_CONCURRENCY = 3
 MAX_TOKENS = 4096
 

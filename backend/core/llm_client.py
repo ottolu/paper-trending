@@ -53,6 +53,14 @@ def _extract_json(raw: str) -> dict:
 
 
 class LLMClient:
+    # DeepSeek official thinking mode rejects these sampling params.
+    _DEEPSEEK_THINKING_UNSUPPORTED = (
+        "temperature",
+        "top_p",
+        "presence_penalty",
+        "frequency_penalty",
+    )
+
     def __init__(
         self,
         base_url: str,
@@ -64,18 +72,38 @@ class LLMClient:
         self.model = model
         self.enable_thinking = enable_thinking
         self.thinking_budget = thinking_budget
+        self.base_url = base_url
+        # DeepSeek official (api.deepseek.com) uses a different thinking dialect
+        # than SiliconFlow; see chat() for the provider-specific handling.
+        self._is_deepseek = "deepseek.com" in base_url
         self._client = AsyncOpenAI(base_url=base_url, api_key=api_key)
 
     async def chat(self, messages: list[dict], **kwargs) -> str:
-        if self.enable_thinking:
-            extra = kwargs.pop("extra_body", {})
+        extra = kwargs.pop("extra_body", {})
+        if self._is_deepseek:
+            # DeepSeek V4: thinking toggled via the `thinking` object (default on);
+            # chain-of-thought returns in `reasoning_content`. Thinking mode rejects
+            # sampling params and JSON `response_format`, so strip them.
+            extra.setdefault(
+                "thinking", {"type": "enabled" if self.enable_thinking else "disabled"}
+            )
+            if self.enable_thinking:
+                for param in self._DEEPSEEK_THINKING_UNSUPPORTED:
+                    kwargs.pop(param, None)
+                kwargs.pop("response_format", None)
+        elif self.enable_thinking:
+            # SiliconFlow / Qwen dialect.
             extra.setdefault("enable_thinking", True)
             extra.setdefault("thinking_budget", self.thinking_budget)
+        if extra:
             kwargs["extra_body"] = extra
         response = await self._client.chat.completions.create(
             model=self.model, messages=messages, **kwargs
         )
-        return response.choices[0].message.content
+        msg = response.choices[0].message
+        # Long-prompt edge case (V3.2/V4 Pro): content == "" but the full answer
+        # lands in reasoning_content. Fall back so chat_json can still parse it.
+        return msg.content or getattr(msg, "reasoning_content", "") or ""
 
     async def chat_json(
         self,

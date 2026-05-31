@@ -5,7 +5,10 @@ import sys
 import time
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
+load_dotenv()
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import logging
@@ -38,13 +41,14 @@ async def main():
     logger.info("Reset %d failed tasks", len(failed))
 
     llm = LLMClient(
-        base_url="https://api.siliconflow.cn/v1",
-        api_key="sk-sazyhdorjrvicvtglqqfwrnogqkoyghudvcxmhnzvdwbxjlp",
-        model="Qwen/Qwen3-VL-235B-A22B-Thinking",
+        base_url="https://api.deepseek.com",
+        api_key=os.environ["DEEPSEEK_API_KEY"],
+        model="deepseek-v4-pro",
+        enable_thinking=True,
     )
     embedding = EmbeddingClient(
         base_url="https://api.siliconflow.cn/v1",
-        api_key="sk-sazyhdorjrvicvtglqqfwrnogqkoyghudvcxmhnzvdwbxjlp",
+        api_key=os.environ["SILICONFLOW_API_KEY"],
         model="Qwen/Qwen3-Embedding-8B",
     )
     vs = VectorStore(persist_dir=str(DATA_ROOT / "chromadb"))

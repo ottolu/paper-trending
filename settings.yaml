@@ -1,10 +1,13 @@
 llm:
-  base_url: "https://api.siliconflow.cn/v1"
-  api_key: "${SILICONFLOW_API_KEY}"
-  model: "deepseek-ai/DeepSeek-V3.2"
+  # DeepSeek official V4 Pro (OpenAI-compatible). Thinking is default-on and
+  # toggled via the `thinking` object — NOT SiliconFlow's enable_thinking /
+  # thinking_budget. Thinking mode also rejects temperature/top_p (see LLMClient).
+  base_url: "https://api.deepseek.com"
+  api_key: "${DEEPSEEK_API_KEY}"
+  model: "deepseek-v4-pro"
   prompt_version: "analysis_v1"
   enable_thinking: true
-  thinking_budget: 32768
+  thinking_budget: 32768  # SiliconFlow-only; ignored by DeepSeek
 
 embedding:
   base_url: "https://api.siliconflow.cn/v1"

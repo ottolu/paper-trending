@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import sys
 
 from backend.core.database import Database
 from backend.core.stage_runner import StageRunner
@@ -50,7 +49,7 @@ async def main():
     for p in papers:
         paper_id = p["id"]
         pdf_url = f"https://arxiv.org/pdf/{paper_id}"
-        run_id = await stage_runner.create(
+        await stage_runner.create(
             target_type="paper",
             target_id=paper_id,
             stage="pdf_fetch",

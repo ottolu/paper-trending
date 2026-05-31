@@ -144,7 +144,7 @@ def main():
             })
             print(f"  Score: {score_total} | Breakdown: {bd}")
         else:
-            print(f"  FAILED")
+            print("  FAILED")
 
     # Metrics
     scores = [r["score_total"] for r in results]
@@ -162,7 +162,7 @@ def main():
         for s in scores:
             b = int(s)
             buckets[b] = buckets.get(b, 0) + 1
-        print(f"\n  Distribution:")
+        print("\n  Distribution:")
         for b in sorted(buckets):
             print(f"    {b}-point: {buckets[b]:3d} {'#' * buckets[b]}")
 
@@ -173,7 +173,7 @@ def main():
 
     # Save
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    output = {"model": "gpt-5.4", "results": results, "n": len(results)}
+    output = {"model": "gpt-5.5", "results": results, "n": len(results)}
     out_path = RESULTS_DIR / "cross_model_gpt54.json"
     out_path.write_text(json.dumps(output, ensure_ascii=False, indent=2))
     print(f"\nSaved to {out_path}")
