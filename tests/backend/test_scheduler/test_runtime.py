@@ -4,7 +4,7 @@ from backend.config.loader import load_config
 from backend.core.database import Database
 from backend.core.stage_runner import StageRunner
 from backend.scheduler.pipeline import PipelineRunner, STAGE_ORDER
-from backend.scheduler.runtime import build_pipeline_runner
+from backend.scheduler.runtime import build_pipeline_runner, build_scheduler
 
 
 @pytest.fixture
@@ -40,3 +40,25 @@ async def test_tick_drains_a_queued_stage_via_fake_service(db):
 
     runner = PipelineRunner(db, sr, services={"pdf_fetch": OneShotService()})
     assert await runner.tick() == 1
+
+
+async def test_build_scheduler_registers_three_jobs(db, monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    config = load_config("tests/fixtures/settings_test.yaml")
+    sr = StageRunner(db)
+    runner = build_pipeline_runner(db, sr, config, _Fake(), _Fake(), _Fake())
+
+    class _Collector:
+        async def collect_hf_daily(self):
+            return {}
+
+    class _Reporter:
+        async def generate_report(self, a, b):
+            return 0
+
+    scheduler = build_scheduler(
+        db, sr, config, runner, _Collector(), _Reporter(), tick_interval_seconds=30
+    )
+    assert {j.id for j in scheduler.get_jobs()} == {"pipeline_tick", "collect", "report"}
+    if scheduler.running:
+        scheduler.shutdown(wait=False)  # never started; just dispose
