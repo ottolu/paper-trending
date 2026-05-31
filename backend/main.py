@@ -38,7 +38,7 @@ async def lifespan(app: FastAPI):
         set_embedding_client(embedding_client)
 
         vector_store = VectorStore(
-            persist_directory=str(Path(config.storage.data_root) / "chromadb")
+            persist_dir=str(Path(config.storage.data_root) / "chromadb")
         )
         set_vector_store(vector_store)
 
