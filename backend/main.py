@@ -63,11 +63,13 @@ def create_app(db: Database | None = None) -> FastAPI:
     from backend.api.reports import router as reports_router
     from backend.api.search import router as search_router
     from backend.api.jobs import router as jobs_router
+    from backend.api.pipeline import router as pipeline_router
 
     app.include_router(papers_router)
     app.include_router(reports_router)
     app.include_router(search_router)
     app.include_router(jobs_router)
+    app.include_router(pipeline_router)
 
     @app.get("/api/health")
     async def health():
