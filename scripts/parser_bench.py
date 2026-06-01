@@ -260,7 +260,7 @@ def parse_mineru(pdf: Path, pid: str) -> tuple[str, dict]:
     out.mkdir(parents=True, exist_ok=True)
     subprocess.run(
         [str(mineru_bin), "-p", str(pdf), "-o", str(out), "-b", "vlm-auto-engine"],
-        check=True, capture_output=True, timeout=1800,
+        check=True, capture_output=True, timeout=2700,
     )
     mds = sorted(out.rglob("*.md"), key=lambda p: len(p.read_bytes()), reverse=True)
     if not mds:
@@ -427,6 +427,89 @@ def cmd_report(args: argparse.Namespace) -> None:
     print(f"\n-> {BENCH / 'RESULTS.md'}")
 
 
+_JUDGE_ROUTES = ["arxiv_html", "pymupdf", "pymupdf4llm", "docling", "marker", "mineru"]
+
+
+def _read_out(route: str, pid: str) -> tuple[str | None, str | None]:
+    for ext in ("md", "html"):
+        f = OUT / route / f"{pid}.{ext}"
+        if f.exists():
+            return f.read_text(errors="replace"), ext
+    return None, None
+
+
+def _clean(text: str, ext: str) -> str:
+    if ext == "html":
+        text = re.sub(r"<(script|style)[^>]*>.*?</\1>", " ", text, flags=re.S | re.I)
+        text = re.sub(r"<[^>]+>", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _eq(text: str, ext: str) -> str:
+    if ext == "html":
+        m = re.search(r'alttext="([^"]{3,240})"', text)
+        return "LaTeX(alttext): " + m.group(1) if m else "(no alttext math)"
+    for pat in (r"\$\$(.+?)\$\$", r"\\\[(.+?)\\\]", r"\\begin\{(?:equation|align)\*?\}(.+?)\\end"):
+        m = re.search(pat, text, re.S)
+        if m:
+            return ("DISPLAY: " + m.group(1).strip())[:240]
+    for ln in text.splitlines():
+        if "$" in ln and "\\" in ln:
+            return ("INLINE: " + ln.strip())[:240]
+    return "(no LaTeX math found)"
+
+
+def _tbl(text: str, ext: str) -> str:
+    m = re.search(r"<table.*?</table>", text, re.S)
+    if m:
+        return m.group(0)[:700]
+    lines = text.splitlines()
+    block: list[str] = []
+    for ln in lines:
+        if re.match(r"^\s*\|.*\|\s*$", ln):
+            block.append(ln.strip())
+            if len(block) >= 12:
+                break
+        elif block:
+            break
+    return "\n".join(block) if len(block) >= 2 else "(no table found)"
+
+
+def _fig(text: str, ext: str) -> str:
+    if ext == "html":
+        cnt = len(re.findall(r"<img\b|<figure\b", text))
+    else:
+        cnt = len(re.findall(r"!\[|<!--\s*image\s*-->", text))
+    m = re.search(r"!\[[^\]]*\]\([^)]*\)|<!--\s*image\s*-->|<img[^>]*>", text)
+    first = m.group(0)[:120] if m else "none"
+    return f"count≈{cnt}; first ref: {first}"
+
+
+def cmd_bundle(args: argparse.Namespace) -> None:
+    papers = {p["id"]: p for p in json.loads(PAPERS_JSON.read_text())}
+    jdir = BENCH / "judge"
+    jdir.mkdir(parents=True, exist_ok=True)
+    for pid in args.ids.split(","):
+        meta = papers.get(pid, {})
+        out = [f"# Judge bundle: {pid}",
+               f"_{meta.get('title','')}_ ({meta.get('n_pages')}pg, html={meta.get('html_source')})"]
+        for r in _JUDGE_ROUTES:
+            text, ext = _read_out(r, pid)
+            out.append(f"\n## {r}" + (f" [{ext}, {len(text)} chars]" if text else " [MISSING]"))
+            if text is None:
+                out.append("(no output)")
+                continue
+            try:
+                out.append("**intro:** " + _clean(text, ext)[:380])
+                out.append("**eq:** " + _eq(text, ext))
+                out.append("**table:**\n```\n" + _tbl(text, ext) + "\n```")
+                out.append("**figs:** " + _fig(text, ext))
+            except Exception as e:  # noqa: BLE001
+                out.append(f"(extract error: {e})")
+        (jdir / f"{pid}.md").write_text("\n".join(out))
+        print(f"-> judge/{pid}.md")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -435,8 +518,10 @@ def main() -> None:
     r = sub.add_parser("_run"); r.add_argument("--parser", required=True)
     b = sub.add_parser("bench"); b.add_argument("--parsers", required=True); b.add_argument("--python", default="")
     sub.add_parser("report")
+    bd = sub.add_parser("bundle"); bd.add_argument("--ids", required=True)
     args = ap.parse_args()
-    {"select": cmd_select, "fetch": cmd_fetch, "_run": cmd_run, "bench": cmd_bench, "report": cmd_report}[args.cmd](args)
+    {"select": cmd_select, "fetch": cmd_fetch, "_run": cmd_run, "bench": cmd_bench,
+     "report": cmd_report, "bundle": cmd_bundle}[args.cmd](args)
 
 
 if __name__ == "__main__":
