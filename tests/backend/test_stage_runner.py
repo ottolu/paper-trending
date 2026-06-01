@@ -148,3 +148,20 @@ async def test_retry_failed_resets_all_failed_in_stage(db):
         assert row["status"] == "pending"
     row = await db.fetch_one("SELECT status FROM stage_runs WHERE id = ?", (other,))
     assert row["status"] == "pending"
+
+
+async def test_retry_failed_skips_runs_at_attempt_cap(db):
+    from backend.core.stage_runner import StageRunner
+
+    sr = StageRunner(db)
+    await _insert_paper(db, "px")
+    rid = await sr.create(target_type="paper", target_id="px", stage="analyzer")
+    await sr.fail(rid, "boom")
+    # push attempt_no to the cap-1 so a retry would exceed max_attempts (5)
+    await db.execute("UPDATE stage_runs SET attempt_no = 4 WHERE id = ?", (rid,))
+
+    n = await sr.retry_failed("analyzer")  # default max_attempts=5 -> attempt_no>=4 skipped
+
+    assert n == 0
+    row = await db.fetch_one("SELECT status FROM stage_runs WHERE id = ?", (rid,))
+    assert row["status"] == "failed"  # left as-is, not reset

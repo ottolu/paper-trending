@@ -179,3 +179,11 @@ async def test_retry_failed_endpoint(db):
     assert r.json()["reset"] == 2
     pend = await sr.list_by_status("pdf_fetch", "pending")
     assert len(pend) == 2
+
+
+async def test_retry_failed_unknown_stage_400(db):
+    app = create_app(db=db)
+    deps.set_db(db)
+    async with _client(app) as ac:
+        r = await ac.post("/api/stages/retry-failed", json={"stage": "not_a_stage"})
+    assert r.status_code == 400
