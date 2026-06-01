@@ -3,8 +3,9 @@ from __future__ import annotations
 import json
 
 from fastapi import APIRouter, HTTPException, Query
+from pydantic import BaseModel
 
-from backend.api.deps import get_db
+from backend.api.deps import get_db, get_reporter
 
 router = APIRouter(prefix="/api/reports", tags=["reports"])
 
@@ -28,6 +29,21 @@ async def list_reports(
 
     items = [dict(r) for r in rows]
     return {"items": items, "page": page, "page_size": page_size, "total": total}
+
+
+class GenerateReportRequest(BaseModel):
+    week_start: str
+    week_end: str
+
+
+@router.post("/generate")
+async def generate_report_endpoint(req: GenerateReportRequest) -> dict:
+    reporter = get_reporter()
+    try:
+        report_id = await reporter.generate_report(req.week_start, req.week_end)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"report_id": report_id, "week_start": req.week_start, "week_end": req.week_end}
 
 
 @router.get("/{report_id}")

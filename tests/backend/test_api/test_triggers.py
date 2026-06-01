@@ -79,3 +79,30 @@ async def test_trigger_collect_rejects_bad_date(db):
     async with _client(app) as ac:
         r = await ac.post("/api/pipeline/collect", json={"target_date": "not-a-date"})
     assert r.status_code == 422
+
+
+async def test_trigger_report_generate(db):
+    app = create_app(db=db)
+    deps.set_db(db)
+
+    class FakeReporter:
+        def __init__(self):
+            self.calls = []
+
+        async def generate_report(self, week_start, week_end):
+            self.calls.append((week_start, week_end))
+            return 7
+
+    reporter = FakeReporter()
+    deps.set_reporter(reporter)
+
+    async with _client(app) as ac:
+        r = await ac.post(
+            "/api/reports/generate",
+            json={"week_start": "2026-05-25", "week_end": "2026-05-31"},
+        )
+
+    assert r.status_code == 200
+    body = r.json()
+    assert body["report_id"] == 7
+    assert reporter.calls == [("2026-05-25", "2026-05-31")]
