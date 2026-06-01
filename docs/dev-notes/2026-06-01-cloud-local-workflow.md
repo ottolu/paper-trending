@@ -46,8 +46,35 @@ patch 落地检查清单：
 - 本次的文档更新、深度报告提交、CLAUDE.md 规则提交，全部走独立 worktree（`/tmp/wt-trend`、`~/pt-claudemd`、`~/pt-docs`），互不干扰、各自独立 PR。
 - 注意：`Database.execute()` 返回 `lastrowid` 非 rowcount；脚本异常未走 `db.close()` 会留 aiosqlite **非守护线程**僵死、占着 DB 写锁（`database is locked`）→ 长跑脚本务必 `try/finally: await db.close()`。
 
+## 多 session 协作的两条新教训（2026-06-02）
+
+### 1. 运行中的 session 不会自动重载 CLAUDE.md
+CLAUDE.md 是 session **启动时**加载进上下文的。会话**中途**别的 session 改了 CLAUDE.md，
+正在跑的 session **脑子里仍是旧版**——你口头说「用 worktree」≠ 它把这当成 CLAUDE.md 级硬规则。
+要真正对齐，必须让那些 session **重新读一遍 CLAUDE.md**（如 `cat CLAUDE.md`，重点 Important Rules）。
+本次就是：规则已 merge 进 main，但跑着的 session 不刷新就感知不到。
+
+### 2. harness 钉死 shell cwd → 「每任务临时 worktree」模式
+本 harness 把每个 session 的 shell cwd 钉在仓库根 `~/paper-trending`（每条 Bash 命令后
+`Shell cwd was reset to ...`），无法 `cd` 到别处长期停留。所以 agent 的实际模式不是「常驻一个
+worktree」，而是**每次要提交就临时 `git worktree add ~/pt-xxx origin/main` → 在里面
+commit/push/PR → 用完 `git worktree remove`**，基地 shell 只在主树读/协调、**不在主树 edit**。
+⚠️ 副作用：所有 session 的默认基地都是主树，主树若停在脏的过期分支 = 大家的默认基地都脏 →
+收尾时要把主树切回干净 `main`。
+
+### 3. CLAUDE.md 多写者冲突 → 单写者 + 仓库外 findings 收件箱
+2026-06 三个 session 并发改 CLAUDE.md，findings 大量重叠（pymupdf/drift/选型表多人同时盯上），
+PR 互相冲突。教训与定稿协议（已写进 CLAUDE.md Important Rules「单写者 + findings 收件箱」）：
+- **单文件多写者不可能并行干净**——必须串行化：让先到的 PR 落地，最后一棒由「整合者」rebase 后
+  只补残差 + 去重 + 跑知识完整性核对，避免重复条目/覆盖他人。
+- **收件箱必须在仓库外**（`~/pt-findings/`，所有 worktree 之上的单一物理文件夹）：纳入 git 的文件
+  跟 CLAUDE.md 一样分支隔离，跨 worktree 看不到。**一 finding 一文件**免写冲突、无需时间戳；
+  owner fold 完即删，队列不留史（永久记录在 CLAUDE.md git 历史）。
+- **finding 写法**见 `~/pt-findings/README.md`（六条准则：可定位/有证据/已提炼/标类型/标重叠/署名）。
+
 ## 一句话结论
 
 - 数据相关的活留本地，云端只规划/改码；两端用 patch/PR 交接。
-- 多 agent 并行用 worktree 隔离，别共用工作树。
-- 详见 CLAUDE.md「Important Rules」两条（worktree / 云端会话）。
+- 多 agent 并行用 worktree 隔离，别共用工作树；改后让运行中的 session 重读 CLAUDE.md。
+- CLAUDE.md 单写者 + 仓库外 `~/pt-findings/` 收件箱，防多写者冲突。
+- 详见 CLAUDE.md「Important Rules」（worktree / 云端会话 / CLAUDE.md 单写者）。
