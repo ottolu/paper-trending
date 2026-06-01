@@ -60,6 +60,10 @@ async def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--min-cluster-size", type=int, default=4)
     ap.add_argument("--min-samples", type=int, default=1)
+    ap.add_argument("--selection-method", choices=["eom", "leaf"], default="eom",
+                    help="HDBSCAN cluster_selection_method; 'leaf' gives finer topics on big corpora")
+    ap.add_argument("--umap-dims", type=int, default=10,
+                    help="reduce embeddings to N dims via UMAP(cosine) before HDBSCAN; 0 disables")
     ap.add_argument("--out", type=str, default="docs/trend-report.md")
     ap.add_argument("--preview", action="store_true", help="only print cluster distribution, no LLM")
     args = ap.parse_args()
@@ -90,6 +94,13 @@ async def main() -> None:
                 "likes": r["hf_likes"] or 0,
             }
         print(f"loaded {len(papers)} analyzed papers")
+        # Week span for labels. _week() is year-agnostic, so a few papers published
+        # in late prior-Dec show as W50-53; drop those stragglers (no 2026 sourcing
+        # week exceeds the current week) so the label reflects the real window.
+        nums = sorted(int(w[1:]) for w in {p["week"] for p in papers.values()} if w != "?")
+        low = [n for n in nums if n <= 45]
+        rng = low or nums
+        wk_span = f"W{min(rng):02d}-W{max(rng):02d}" if rng else "?"
 
         # embeddings from ChromaDB (VectorStore.get drops `include`, so go direct)
         col = chromadb.PersistentClient(path=str(DATA_ROOT / "chromadb")).get_collection(COLLECTION)
@@ -106,9 +117,23 @@ async def main() -> None:
         # L2-normalize so euclidean distance approximates cosine (text embeddings
         # cluster far better this way -> much less HDBSCAN noise).
         X = X / np.clip(np.linalg.norm(X, axis=1, keepdims=True), 1e-12, None)
+        # UMAP dim-reduction before HDBSCAN: raw high-dim embeddings give either a
+        # few mega-clusters (eom) or >50% noise (leaf); reducing to ~10 cosine dims
+        # yields coherent topics with far less noise (BERTopic-style).
+        if args.umap_dims > 0 and len(X) > args.umap_dims:
+            try:
+                import umap
+                X = umap.UMAP(
+                    n_components=args.umap_dims, metric="cosine",
+                    n_neighbors=15, min_dist=0.0, random_state=42,
+                ).fit_transform(X)
+                print(f"UMAP -> {X.shape[1]}d")
+            except ImportError:
+                print("umap not installed; clustering on full-dim embeddings")
         if len(X) >= args.min_cluster_size:
             labels = _hdbscan.HDBSCAN(
                 min_cluster_size=args.min_cluster_size, min_samples=args.min_samples,
+                cluster_selection_method=args.selection_method,
             ).fit_predict(X).tolist()
         else:
             labels = [-1] * len(X)
@@ -180,7 +205,7 @@ async def main() -> None:
         llm = LLMClient(base_url=DS_BASE_URL, api_key=os.environ["DEEPSEEK_API_KEY"],
                         model=LLM_MODEL, enable_thinking=True)
         sys_prompt = (
-            "你是 AI 研究趋势分析师。下面是最近 4 个 ISO 周（W19-W22, 2026）HuggingFace 高热论文经过"
+            f"你是 AI 研究趋势分析师。下面是 2026 年 ISO 周 {wk_span} 的 HuggingFace 高热论文经过"
             "全文 LLM 分析后的聚类结果。每簇给了规模、周分布（动量）、学术分（novelty/impact，1-10）、"
             "HF 社区点赞（likes，独立信号，勿与学术分混合）、高频标签、代表论文。\n\n"
             "请用中文输出一份趋势报告，包含：\n"
@@ -208,9 +233,9 @@ async def main() -> None:
         out = Path(args.out)
         out.parent.mkdir(parents=True, exist_ok=True)
         header = (
-            f"# AI 研究趋势报告 — HF Weekly W19-W22 (2026)\n\n"
+            f"# AI 研究趋势报告 — HF Weekly {wk_span} (2026)\n\n"
             f"> 语料：{len(papers)} 篇全文分析论文 | {len(ordered)} 个主题簇（{noise_n} 篇离群）"
-            f" | 聚类 HDBSCAN(min_cluster_size={args.min_cluster_size}) | 模型 {LLM_MODEL}\n\n"
+            f" | HDBSCAN(mcs={args.min_cluster_size}, {args.selection_method}) | 模型 {LLM_MODEL}\n\n"
         )
         out.write_text(
             header + report
