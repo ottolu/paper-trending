@@ -133,6 +133,8 @@ async def db(tmp_path):
 
 ## Important Rules
 
+- **并行开发用 git worktree 隔离，别共用工作树**：当有另一个 session/进程正在这个仓库工作（或你要并行跑长任务、改半成品时被叫去做别的），**不要在主工作树里直接切分支/改文件**——`git checkout` 是原地覆盖同一个目录，两个 agent 会互相踩（曾踩过：一个 session `checkout` 到别的分支，另一个 session 脚下文件被换、改动被搅）。正确做法：`git worktree add -b <分支> ~/pt-<名字> <起点分支>` 开一个物理隔离目录，在里面 edit/commit/push/PR，完全不碰别人正在编辑的主树。用完 `git worktree remove <目录>`（删目录不删分支；分支单独 `git branch -d`）。worktree 共享同一 `.git`，分支/提交即时互见，比 clone 省空间。⚠️ 同一分支不能同时在两个 worktree checkout。worktree 目录放 `~/pt-xxx` 等持久位置，别放 `/tmp`（重启可能被清）。
+
 - **论文分析必须基于 PDF 全文**：不能用 abstract-only 来分析论文。所有分析都需要先经过 PDF 解析（marker-pdf）提取全文，再送入 LLM 分析。abstract-only 模式只能用于快速预筛，不能作为最终分析依据。
 
 - **研发过程中产出的经验必须落到 `docs/dev-notes/`**：以下场景结束后，必须写/更新 dev-note，不能只存在于对话里：
