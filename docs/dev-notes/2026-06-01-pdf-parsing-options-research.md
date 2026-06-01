@@ -56,7 +56,58 @@ harness:`scripts/parser_bench.py`;样本:5 个 ISO 周(2025-W32 → 2026-W16)各
 
 → **更新推荐栈**:arXiv HTML(20/20,主路径,+清洗)→ 无 HTML/太新走 PDF:**pymupdf4llm**(默认,要图才上 docling)→ 数学密集纯 PDF:MinerU2.5(待测)→ 超快预筛:pymupdf。
 
-## 删 marker?决定:暂缓,bake-off 后再删
+## Opus 4.8 裁判结果(权威质量评估,5 篇深判)
+
+样本:2602.08222(数学密集)、2602.05400(表格密集+长)、2508.02324(Qwen-Image 产品报告)、2604.14148(Seedance 产品报告)、2510.04871(短)。对齐摘录 `data/parser_bench/judge/<id>.md`,Opus 逐篇比对同一公式/表格/图。评分 1–5。
+
+| route | 公式 | 表格 | 图 | 可读性 | s/页 | 定位 |
+|------|----|----|----|------|-----|------|
+| **arXiv html(native)** | **5** | **5** | 4(引用) | 4(需清洗) | ~0 | 命中即最佳 |
+| arXiv html(**ar5iv**) | 0 | 0 | 0 | 1 | ~0 | **致命失败(见下)** |
+| **mineru** | **5** | **5**(HTML+跨格) | **5**(抽真图) | 4.5 | 26.8 | **最强 PDF fallback** |
+| marker | 5 | 3.5(**偶尔塌成空表**) | 4(抽真图) | 4 | 8.4 | 接近但更 flaky,无独占场景 |
+| docling | **1(无 LaTeX)** | 4.5(干净 md) | 2.5(仅占位) | 4 | 0.67 | 非数学最佳,快 |
+| pymupdf4llm | 1 | 3(有 `~~`/`<br>` 噪) | 1 | 3 | 0.22 | 一般 |
+| pymupdf | 1 | 1 | 1 | 2.5 | 0.005 | 仅正文预筛 |
+
+**裁判关键发现(代理指标完全测不出来的):**
+
+1. **公式硬分水岭**:只有 arXiv-html(native)/ marker / mineru 给**干净 LaTeX**(实证同一式 `\Delta\theta_t(\widehat{\mathcal B}_t)=-\eta_t\sum...`)。**docling / pymupdf4llm / pymupdf 一律不吐 LaTeX**(docling 即便有 formula model,默认 markdown 导出也是 unicode/丢失)→ 数学论文这三个直接出局。
+2. **arXiv-HTML 是"高天花板但逐篇不可靠"**:native `arxiv.org/html`(16/20)优秀;但 **ar5iv fallback(4/20)在两篇产品报告上致命失败**——Qwen-Image 只剩 8KB「Conversion had a Fatal error... truncated or damaged」,Seedance 只剩author list。**所以 20/20 是 HTTP 可用率,不是内容成功率**。必须按内容质检(字数阈值 / `Fatal error` 串 / 有无 `<math>`/`<table>`),且**ar5iv 基本要直接转 PDF 路径**。
+3. **mineru 是最稳的高保真 PDF 解析**:表格用 HTML 保跨格(`rowspan/colspan`)、公式 LaTeX、抽出真图 .jpg,5 篇全过(包括别人翻车的)。代价是最慢 26.8s/页。
+4. **marker 接近但更 flaky**:Seedance 排行榜表被它**解析成全空单元格**,还合并过表头;且无"独占最优"场景(数学被 mineru 平/更稳,速度被 docling 碾)。
+5. **docling 是非数学场景最佳**:表格最干净、保留 figure caption、快(0.67s/页);但**零公式**是硬伤,且图只给 `<!-- image -->` 占位不抽真图。
+
+## 删 marker?决定:✅ 已 bake-off + 裁判,**确认可弃**
+
+（原"暂缓"已结论化）marker 在 M2 上 8.4s/页、3.35GB RAM、最脆(surya MPS patch),裁判里**没有一个维度是唯一最优**:公式被 mineru 平、表格更 flaky(Seedance 塌)、非数学被 docling 完胜速度。→ Docling+MinerU 在 M2 上确认覆盖 marker 的位,**可删 `_run_marker()` + marker-pdf 依赖 + `_patch_surya_mps()`**(留 git 可回溯)。唯一保留理由:想要"比 MinerU 快、但仍出 LaTeX"的数学 fallback 且能接受表格偶尔翻车——否则删。
+
+## 最终推荐 pipeline(数据 + 裁判定稿)
+
+```
+每篇(arxiv id):
+1. arXiv NATIVE html(arxiv.org/html/{id})+ 内容质检门控(字数/无 Fatal/有 <math>)
+   PASS → 用它(公式+表格+图最佳,近免费)  ~16/20
+2. ar5iv / 无 html / 质检失败 / 太新 → PDF 解析:
+     默认 → MinerU2.5(最稳:LaTeX+跨格表+抽真图;慢但只占少数)
+     非数学且求快 → docling(干净表+caption,40× 快,但无公式)
+3. 仅需正文预筛 → pymupdf(0.005s/页)
+4. 图 → 用 mineru/marker 抽出的真图喂多模态 Opus,别信占位/图内文字
+```
+未来 M5 Max/Ultra:MinerU 的 26.8s/页成本大降,可把"PDF fallback 一律 MinerU"设为默认,不再为速度分流 docling。
+
+## Enrichment 层:解析产物 → 喂文本 LLM 前的必备后处理(2026-06-01 跑通)
+
+裁判暴露两个 gap,解析产物**不是** text-LLM-ready。`scripts/parser_enrich.py` 补这层(不重跑解析):
+
+1. **arXiv HTML 必须 linearize**:raw HTML 对模型是噪声(实测 2510.04871 的 MathML 66K 仅编码 2.4K LaTeX,27× 膨胀)。`linearize` 用 bs4 把每个 `<math>` 换成它 `<annotation application/x-tex>` 里的原始 LaTeX、去 boilerplate、markdownify。**实测 16/20 native 清成 ~50–226K 干净 markdown(2602.08222 503K→84K / 499 个 `$`);4/20 ar5iv 直接塌到 ~100 字符**(Qwen-Image/Seedance/2604.08626/2604.11297)——再次坐实 **native-only gate,ar5iv 走 MinerU**。
+2. **MinerU 图必须补文字描述**:确认 MinerU 只抽图(`img_path`)+ 留原始 caption(`image_caption`),**`content` 为空,不描述图内容**。文本-only DeepSeek V4 Pro 读不到图 → 加 `图→VLM detail caption→inline` 步。**VLM 用 Claude 自身(Opus 多模态,Read 工具看图)已跑通**:Seedance 4 张雷达图实测,把"Seedance 2.0 各轴分数 / 谁领先 / 唯一不领先的 Consumer-Effects Aesthetics 2.89"等图内信息转成文字 inline 回 markdown,文本 LLM 现在能读。规模:**245 张有意义的图 / 20 篇**(多数 3–9,大头 Qwen-Image 55、Code2World 42)。**已全部跑完**:19 个并行 sonnet sub-agent 各读自己那篇的图、写 `_enrich/<id>.captions.json`,**245/245、0 unreadable**,inline 进 `outputs/mineru_enriched/<id>.md`。实测描述质量好(抽出图里的模型排名/轴分数、架构图各 stage、样例图渲染的中英文文字等,文本 LLM 现在读得到)。
+   - ⚠️ 备选:图密集论文也可改用多模态 reader(Opus/GPT)直接读图,跳过描述步;纯文本/数学论文走 DeepSeek。
+3. **拼成单一 canonical fulltext**(`assemble`):图描述必须**就地插回 MinerU 正文**(模型才能 cross-reference),最后每篇产出一篇连贯全文。`assemble` 逻辑:① 内容门控——`arxiv_html_clean` 可用(>2K 字符)走 HTML,否则走 MinerU;② MinerU 路线清洗——丢 `<details>text_image</details>`(图内 OCR 碎片垃圾)、unwrap 其余 `<details>`(保留 MinerU 自带的图描述)、删所有 `![](images/..)` 死链(文本 LLM 用不上)、保留我们的 VLM 描述。实测 20 篇:**16 走 native-HTML-clean,4 走 MinerU-assembled(ar5iv-fail 那 4 篇);残留 image-ref/details/text_image 全 0**。
+   - **意外发现**:MinerU 的 markdown `<details>` 块里**自带图类型分类 + 一句话描述**(flowchart 49 / natural_image 31 / bar 16 / line 14 / histogram 9 …,共 197 块)——即 MinerU **本就对图表自描述**(简短)。我们的 VLM 描述是更详的一层(带具体数值/排名);二者互补保留。所以"MinerU 完全不描述图"需修正为"对 image 类不描述、对 chart/diagram 类有简短自述"。
+- 产物:`outputs/arxiv_html_clean/`、`outputs/mineru_enriched/`、**`outputs/fulltext/<id>.md`(最终喂模型的 canonical 全文,带 `route=` 头)**、`_enrich/<id>.{figs,captions}.json`。`scripts/parser_enrich.py {linearize,manifest,inline,assemble}`。
+
+## 旧"删 marker"分析(已被上面结论取代,保留备查)
 
 - **结论成立**:marker 在本场景两头不靠——Docling 更快(~1.3 vs ~4s/页 M3Max)、更轻、MIT,保真相当;MinerU2.5 保真更高。marker 还需 Apple Silicon 上 `_patch_surya_mps()` 补丁(surya 升级即失效),最脆。255s/篇 → 5000 篇 ≈ 15 天,批量不可行。**没有一个场景 marker 是最优选。**
 - **但先别删代码**:① pymupdf 才是默认,marker 路径**已休眠**,2.6GB 模型未下载,留着零成本;② Docling/MinerU 在 M2 上的保真**还没本地验证**,在替代品被证明前删掉已知可用的 fallback 有风险。

@@ -229,12 +229,15 @@ surya 在 Apple Silicon MPS 上有多个 `.item()`/`.max()` 返回垃圾值的 b
 
 ### 新方案调研(2026-06-01,喂大模型精读场景)
 
-- **对 arXiv 论文,最高杠杆是「别解析 PDF」**:~90% 有 LaTeX 源的论文直接走 arXiv 原生 HTML / ar5iv(公式=MathML+原始 LaTeX,表格/图从 TeX 源重建),消灭公式乱码/表格塌陷——这才是主路径,PDF 解析退化为 fallback。需逐篇质量门控(~83% HTML 带 warning/error 标记;ar5iv 滞后 live ~1 月,最新论文走 PDF)。
-- **M2 实测(20 篇/528 页,2026-06-01)**:arXiv-HTML 在 HF 语料 **20/20 命中**;**所有 PDF 解析器的 markdown 都不吐 LaTeX 公式**(pymupdf/pymupdf4llm/docling 的公式代理全 <2)→ 公式密集纯 PDF 必须靠 MinerU。
-- **PDF fallback 默认 pymupdf4llm**(5.8s/篇,878MB,表格强):实测比 Docling **3× 快、½ RAM、表格相当**;**只有要图占位/结构化 JSON 才上 Docling**(17.7s/篇,1.7GB,但能捕获图)。Docling **必须关 OCR**(默认对原生 PDF 跑 RapidOCR,慢数倍)。硬骨头/公式密集 → MinerU2.5(MLX,已装在 `.venv-mineru`,待跑)。
-- **图/图表是所有解析器最弱环**:下游 Claude Opus 4.8 是多模态,**图单独抽成图片直接喂多模态 LLM**,别信解析器的图内文字。
-- 未来上 M5 Max/Ultra:把 MinerU2.5(MLX VLM)提升为默认。
-- bake-off harness `scripts/parser_bench.py`(可复现,`bench --parsers ...` 自动并入 RESULTS);数据 `data/parser_bench/`。MinerU/marker + Opus 裁判待补。详见 `docs/dev-notes/2026-06-01-pdf-parsing-options-research.md`。
+已跑完 6 路 × 20 篇 M2 bake-off + Opus 4.8 裁判(5 篇深判)。定稿结论:
+
+- **主路径 = arXiv NATIVE html（`arxiv.org/html/{id}`）+ 内容质检门控**(字数阈值 / 无 `Fatal error` / 有 `<math>`/`<table>`)。⚠️ **ar5iv fallback 不可靠**——裁判实测 Qwen-Image、Seedance 两篇 ar5iv 致命失败(只剩 8–11KB「truncated or damaged」)。**20/20「命中」是 HTTP 可用率,不是内容成功率**;ar5iv/质检失败的直接转 PDF。
+- **公式硬分水岭**:只有 native-html / marker / MinerU 给**干净 LaTeX**;**docling / pymupdf4llm / pymupdf 一律不吐 LaTeX**(docling 默认 markdown 也不吐)→ 数学论文这三个出局。
+- **PDF fallback 默认 MinerU2.5**(裁判最稳:LaTeX + 跨格 HTML 表 + 抽真图,5/20 全过;装在 `.venv-mineru`,MLX,26.8s/页慢但只占少数);**非数学且求快 → docling**(0.67s/页,表干净有 caption,但零公式、图仅占位,且**必须关 OCR**)。pymupdf(0.005s/页)仅正文预筛。
+- **marker 确认可弃**:8.4s/页、最脆(surya MPS patch)、裁判里无独占最优(Seedance 表被它塌成空表)。可删 `_run_marker()` + 依赖。
+- **解析产物 ≠ LLM-ready,要过 enrichment 层**(`scripts/parser_enrich.py`):① HTML 必须 `linearize`(`<math>`→x-tex LaTeX、去 boilerplate;16/20 native 清成干净 md,4/20 ar5iv 塌掉);② MinerU 图要补描述——MinerU 只抽图+留原 caption,**不描述内容**(对 chart/diagram 类的 `<details>` 有简短自述,对普通 image 类没有),文本-only reader(DeepSeek V4 Pro)看不到图 → 用多模态模型(Claude 自身即可,已验证 245 图)生成 detail caption;③ `assemble` 把图描述**就地插回正文**、丢 `text_image` OCR 碎片、unwrap MinerU 自述、删死图链 → 每篇产出单一 canonical `outputs/fulltext/<id>.md`(带 `route=html|mineru` 头)。
+- **图**:用 MinerU/marker 抽出的真图喂多模态模型,别信占位/图内文字。未来 M5 上 MinerU 成本大降 → PDF fallback 一律 MinerU。
+- harness:bake-off `scripts/parser_bench.py`(`bench --parsers ...` / `bundle --ids ...`)、enrichment `scripts/parser_enrich.py`(`linearize`/`manifest`/`inline`/`assemble`);数据 + 裁判 `data/parser_bench/`。详见 `docs/dev-notes/2026-06-01-pdf-parsing-options-research.md`。
 
 ## HuggingFace API
 
