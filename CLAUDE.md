@@ -147,7 +147,12 @@ async def db(tmp_path):
 
 - **云端会话（Ultraplan / Claude Code on the web）只规划/改代码，数据相关步骤必须回本地跑**：云端容器是仓库的全新 clone，**没有 `data/`（gitignore：tracker.db / papers / chromadb 全不在）、没有 `.env`、可能也没有 push 凭证**。所以任何依赖数据库/向量库/660 篇语料的脚本（`trend_report.py`、`analyze_all.py` 等）在云端**根本跑不起来**。标准协作模式：**云端精修 plan / 改脚本 → 导出 `git diff` patch → 本地 `git apply` → 用真实数据跑**。云端远程会话登录需 **Claude.ai 账户（非 Console / API key）**，否则 `cannot launch remote session`。详见 dev-note 2026-06-01-cloud-local-workflow。
 
-- **论文分析必须基于 PDF 全文**：不能用 abstract-only 来分析论文。所有分析都需要先经过 PDF 解析（marker-pdf）提取全文，再送入 LLM 分析。abstract-only 模式只能用于快速预筛，不能作为最终分析依据。
+- **CLAUDE.md 单写者 + findings 收件箱（跨 session 防冲突）**：CLAUDE.md 所有 session 启动即加载，是共享知识库；多源并发直接改它必冲突、易丢经验（2026-06 三方并发改 CLAUDE.md 实证）。⚠️ **纳入 git 的「收件箱文件」不解决问题**——它和 CLAUDE.md 一样是分支隔离的（worktree 各有独立工作目录/分支，别人分支上的改动不 merge 进 main 你就看不到）。规矩：
+  1. **每轮只一个 CLAUDE.md owner** 实际编辑 CLAUDE.md（人指定，或由做收尾/整合的 session 担任）。
+  2. **其他 session 不直接改 CLAUDE.md**——把 finding 作为**单独一个文件**写到 **`~/pt-findings/<session>-<短主题>.md`**（仓库外、所有 worktree 之上的共享文件夹，**本机协调用、不入 git**；一 finding 一文件天然免写冲突，无需时间戳）。写法见 `~/pt-findings/README.md` 模板。
+  3. **owner 整合**：读 `~/pt-findings/` 全部 → 逐条 fold 进对应章节、去重 → `git diff origin/main -- CLAUDE.md` 自查**只增改、没删**别人的规则 → 跑知识完整性核对 → commit message 列明 fold 了哪些 → **删掉已处理的 finding 文件**（清空队列；永久记录留在 CLAUDE.md 的 git 历史，队列不留史）。
+
+- **论文分析必须基于 PDF 全文**：不能用 abstract-only 来分析论文。所有分析都需要先经过 PDF 解析（生产默认 pymupdf，见「PDF 解析」段）提取全文，再送入 LLM 分析。abstract-only 模式只能用于快速预筛，不能作为最终分析依据。
 
 - **研发过程中产出的经验必须落到 `docs/dev-notes/`**：以下场景结束后，必须写/更新 dev-note，不能只存在于对话里：
   - profiling / 性能基准对比（不同方案、不同模型、不同参数的量化结果）
