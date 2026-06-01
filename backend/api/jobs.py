@@ -28,3 +28,14 @@ async def retry_stage(req: RetryRequest):
         "stage_run_id": req.stage_run_id,
         "accepted_at": datetime.now(UTC).isoformat(),
     }
+
+
+class RetryFailedRequest(BaseModel):
+    stage: str
+
+
+@router.post("/api/stages/retry-failed")
+async def retry_failed_stage(req: RetryFailedRequest):
+    stage_runner = get_stage_runner()
+    count = await stage_runner.retry_failed(req.stage)
+    return {"status": "accepted", "stage": req.stage, "reset": count}

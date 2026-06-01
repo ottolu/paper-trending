@@ -161,3 +161,21 @@ async def test_reanalyze_unknown_paper_404(db):
     async with _client(app) as ac:
         r = await ac.post("/api/papers/does-not-exist/analyze")
     assert r.status_code == 404
+
+
+async def test_retry_failed_endpoint(db):
+    app = create_app(db=db)
+    deps.set_db(db)
+    sr = StageRunner(db)
+    for i in range(2):
+        await _insert_paper(db, f"f{i}")
+        rid = await sr.create(target_type="paper", target_id=f"f{i}", stage="pdf_fetch")
+        await sr.fail(rid, "boom")
+
+    async with _client(app) as ac:
+        r = await ac.post("/api/stages/retry-failed", json={"stage": "pdf_fetch"})
+
+    assert r.status_code == 200
+    assert r.json()["reset"] == 2
+    pend = await sr.list_by_status("pdf_fetch", "pending")
+    assert len(pend) == 2

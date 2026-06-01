@@ -125,3 +125,26 @@ async def test_list_by_status(db, runner):
     await runner.create(target_type="paper", target_id="p2", stage="pdf_fetch")
     pending = await runner.list_by_status(stage="pdf_fetch", status="pending")
     assert len(pending) == 2
+
+
+async def test_retry_failed_resets_all_failed_in_stage(db):
+    from backend.core.stage_runner import StageRunner
+
+    sr = StageRunner(db)
+    ids = []
+    for i in range(3):
+        await _insert_paper(db, f"p{i}")
+        rid = await sr.create(target_type="paper", target_id=f"p{i}", stage="analyzer")
+        await sr.fail(rid, "boom")
+        ids.append(rid)
+    await _insert_paper(db, "p-ok")
+    other = await sr.create(target_type="paper", target_id="p-ok", stage="analyzer")
+
+    n = await sr.retry_failed("analyzer")
+
+    assert n == 3
+    for rid in ids:
+        row = await db.fetch_one("SELECT status FROM stage_runs WHERE id = ?", (rid,))
+        assert row["status"] == "pending"
+    row = await db.fetch_one("SELECT status FROM stage_runs WHERE id = ?", (other,))
+    assert row["status"] == "pending"

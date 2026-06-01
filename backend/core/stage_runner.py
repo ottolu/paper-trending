@@ -112,6 +112,15 @@ class StageRunner:
             (run_id,),
         )
 
+    async def retry_failed(self, stage: str) -> int:
+        rows = await self._db.fetch_all(
+            "SELECT id FROM stage_runs WHERE stage = ? AND status = 'failed'",
+            (stage,),
+        )
+        for row in rows:
+            await self.retry(row["id"])
+        return len(rows)
+
     async def reclaim_expired(self, stage: str, worker_id: str, lease_seconds: int = 300) -> dict | None:
         row = await self._db.fetch_one(
             "SELECT id FROM stage_runs WHERE stage = ? AND status = 'running' AND lease_expires_at < datetime('now') "
