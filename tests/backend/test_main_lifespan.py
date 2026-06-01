@@ -57,3 +57,21 @@ def test_lifespan_starts_and_status_endpoint_works(tmp_path, monkeypatch):
         "pdf_fetch", "pdf_parse", "processor", "analyzer", "sync",
     }
     assert body["total_pending"] == 0  # fresh tmp DB
+
+
+def test_lifespan_registers_collector_and_reporter(tmp_path, monkeypatch):
+    monkeypatch.setenv("PT_SCHEDULER", "off")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-test")
+    monkeypatch.setenv("SILICONFLOW_API_KEY", "sk-test")
+    settings = tmp_path / "settings.yaml"
+    _write_settings(settings, tmp_path)
+    monkeypatch.setenv("SETTINGS_PATH", str(settings))
+
+    from backend.api import deps
+    from backend.main import create_app
+
+    app = create_app()
+    with TestClient(app):  # runs lifespan startup
+        assert deps.get_collector() is not None
+        assert deps.get_reporter() is not None

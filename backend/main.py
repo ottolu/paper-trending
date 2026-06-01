@@ -7,7 +7,15 @@ from pathlib import Path
 from dotenv import load_dotenv
 from fastapi import FastAPI
 
-from backend.api.deps import get_stage_runner, set_db, set_embedding_client, set_pipeline_runner, set_vector_store
+from backend.api.deps import (
+    get_stage_runner,
+    set_collector,
+    set_db,
+    set_embedding_client,
+    set_pipeline_runner,
+    set_reporter,
+    set_vector_store,
+)
 from backend.collectors.service import CollectorService
 from backend.config.loader import load_config
 from backend.core.database import Database
@@ -58,15 +66,18 @@ async def lifespan(app: FastAPI):
         )
         set_pipeline_runner(pipeline_runner)
 
+        collector = CollectorService(
+            db, stage_runner,
+            arxiv_categories=config.arxiv.categories,
+            arxiv_interval=config.arxiv.request_interval_seconds,
+        )
+        set_collector(collector)
+        reporter = ReporterService(
+            db, stage_runner, llm_client=llm_client, vector_store=vector_store
+        )
+        set_reporter(reporter)
+
         if os.environ.get("PT_SCHEDULER", "on") == "on":
-            collector = CollectorService(
-                db, stage_runner,
-                arxiv_categories=config.arxiv.categories,
-                arxiv_interval=config.arxiv.request_interval_seconds,
-            )
-            reporter = ReporterService(
-                db, stage_runner, llm_client=llm_client, vector_store=vector_store
-            )
             scheduler = build_scheduler(
                 db, stage_runner, config, pipeline_runner, collector, reporter
             )

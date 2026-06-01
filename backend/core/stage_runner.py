@@ -112,6 +112,22 @@ class StageRunner:
             (run_id,),
         )
 
+    async def retry_failed(self, stage: str, max_attempts: int = 5) -> int:
+        """Reset failed runs in `stage` back to pending; return how many were reset.
+
+        Runs already at the attempt cap (attempt_no >= max_attempts - 1) are skipped:
+        retrying them would just bump attempt_no to max_attempts and immediately
+        re-fail on the next claim ("max attempts exceeded").
+        """
+        rows = await self._db.fetch_all(
+            "SELECT id FROM stage_runs "
+            "WHERE stage = ? AND status = 'failed' AND attempt_no < ?",
+            (stage, max_attempts - 1),
+        )
+        for row in rows:
+            await self.retry(row["id"])
+        return len(rows)
+
     async def reclaim_expired(self, stage: str, worker_id: str, lease_seconds: int = 300) -> dict | None:
         row = await self._db.fetch_one(
             "SELECT id FROM stage_runs WHERE stage = ? AND status = 'running' AND lease_expires_at < datetime('now') "
