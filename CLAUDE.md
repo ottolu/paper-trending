@@ -238,6 +238,8 @@ surya 在 Apple Silicon MPS 上有多个 `.item()`/`.max()` 返回垃圾值的 b
 - **解析产物 ≠ LLM-ready,要过 enrichment 层**(`scripts/parser_enrich.py`):① HTML 必须 `linearize`(`<math>`→x-tex LaTeX、去 boilerplate;16/20 native 清成干净 md,4/20 ar5iv 塌掉);② MinerU 图要补描述——MinerU 只抽图+留原 caption,**不描述内容**(对 chart/diagram 类的 `<details>` 有简短自述,对普通 image 类没有),文本-only reader(DeepSeek V4 Pro)看不到图 → 用多模态模型(Claude 自身即可,已验证 245 图)生成 detail caption;③ `assemble` 把图描述**就地插回正文**、丢 `text_image` OCR 碎片、unwrap MinerU 自述、删死图链 → 每篇产出单一 canonical `outputs/fulltext/<id>.md`(带 `route=html|mineru` 头)。
 - **图**:用 MinerU/marker 抽出的真图喂多模态模型,别信占位/图内文字。未来 M5 上 MinerU 成本大降 → PDF fallback 一律 MinerU。
 - harness:bake-off `scripts/parser_bench.py`(`bench --parsers ...` / `bundle --ids ...`)、enrichment `scripts/parser_enrich.py`(`linearize`/`manifest`/`inline`/`assemble`);数据 + 裁判 `data/parser_bench/`。详见 `docs/dev-notes/2026-06-01-pdf-parsing-options-research.md`。
+- ⚠️ **本节是 research/recommended,尚未接入生产**:生产 `pdf_parse` 仍走 pymupdf/marker(见上),native-html + MinerU + enrichment 这条线只在 `scripts/parser_bench.py` / `parser_enrich.py` 上跑过 20 篇验证,**未接 `backend/`**。要上生产需新增 `source_resolve`(native-html 门控)+ `pdf_parse` 加 mineru/docling 后端 + 两个 enrichment stage。
+- ⚠️ **pymupdf 数字别混**:bake-off 里标的 `0.005s/页` 是裸 `page.get_text()`(纯文本抽取),**不是**生产 `_run_pymupdf` 的全量解析——后者 **2.7s/篇**(含字号 heading 判定 + `fulltext.md`/`blocks.json`/`sections.json` 多文件输出,见上「PDF 解析」段)。规模规划一律按生产 **2.7s/篇**。
 
 ## HuggingFace API
 
@@ -270,6 +272,8 @@ surya 在 Apple Silicon MPS 上有多个 `.item()`/`.max()` 返回垃圾值的 b
 | 常规推荐（面向用户） | V3.2 × v3 | 温和，σ=2.98，80s/篇 |
 | 精选榜单（严格筛选） | **GPT-5.4 × v4** | 最深 narrative（7.5 弱点/篇），偏 Reject |
 | 成本敏感/快速通道 | GPT-5.4 × v3 | 35s/篇，最快 |
+
+> ⚠️ 上表 `V3.2` / `GPT-5.4` 是 **2026-06 迁移前**模型——现产线已是 `deepseek-v4-pro` / `gpt-5.5`（见 §LLM/Embedding 服务）。数据留档、组合**结论**仍可参考(温和 vs 严格 vs 快),但**别再按旧 model id 跑**;新模型基线见 dev-note 2026-06-01-analyzer-benchmark-and-score-bug（v4-pro 实测 ~63s/篇）。
 
 ### Analysis basis 规则
 
