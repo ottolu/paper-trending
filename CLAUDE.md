@@ -63,10 +63,20 @@ collect → pdf_fetch → pdf_parse → processor → analyzer → sync
 ### API Layer
 
 FastAPI app 通过 `create_app(db=None)` 工厂函数创建：
-- **生产环境:** `db=None`，使用 `lifespan` 从 `settings.yaml` 初始化 DB/Embedding/VectorStore
-- **测试环境:** 传入 `db=<test_db>`，跳过 lifespan
+- **生产环境:** `db=None`，`lifespan` 从 `settings.yaml` 初始化 DB/Embedding/VectorStore/**LLMClient**，构造 **PipelineRunner + CollectorService + ReporterService** 注入 deps，再**启动 APScheduler 自驱流水线**（见下「生产编排：自驱流水线」）。
+- **测试环境:** 传入 `db=<test_db>`，跳过 lifespan。端点测试用 `httpx.ASGITransport` + `deps.set_*()` 注入假服务。
 
-依赖注入通过 `backend/api/deps.py` 的全局 getter/setter 管理（`get_db()`, `get_stage_runner()` 等）。
+依赖注入通过 `backend/api/deps.py` 的全局 getter/setter（`get_db()` / `get_stage_runner()` / `get_pipeline_runner()` / `get_collector()` / `get_reporter()` / `get_embedding_client()` / `get_vector_store()`）。
+
+**HTTP 端点**（`backend/api/{papers,reports,search,jobs,pipeline}.py`）：
+- 查询：`GET /api/papers`（筛选/排序/分页）、`/api/papers/{id}`、`GET /api/reports`、`/api/reports/{id}`、`POST /api/search/semantic`、`GET /api/health`、`GET /api/pipeline/status`（各 stage pending 计数，`COUNT(*)` 不封顶 100）。
+- **运维触发端点（Phase 2，2026-06-01）**，均无鉴权（运维型，本地/可信网络用）：
+  - `POST /api/pipeline/tick` — 202，后台 drain 整个 backlog（⚠️ 会真打 LLM，别狂点）
+  - `POST /api/pipeline/collect` — `{target_date?, top?}`，立即跑一次日采集
+  - `POST /api/reports/generate` — `{week_start, week_end}`，**同步阻塞**到聚类+LLM 跑完（前端要设长超时）。⚠️ 依赖 `ReporterService`，注意「趋势/聚类分析」段记的两个潜伏 bug，未修前此端点会报错
+  - `POST /api/papers/{id}/analyze` — 202，用 `retry()` 重排已有 analyzer 任务（复用原 manifest），返回 `previous_status`
+  - `POST /api/stages/retry`（单条）/ `POST /api/stages/retry-failed`（`{stage}` 重置该 stage 全部 failed，校验 `STAGE_ORDER`→400，跳过 attempt 已封顶的）
+  - 详见 plan `docs/superpowers/plans/2026-06-01-phase2-trigger-endpoints.md`
 
 ### Configuration
 
@@ -177,9 +187,17 @@ async def db(tmp_path):
 - 旧 `gpt-5.4` 已升级为 `gpt-5.5`（本机 codex 默认 model 即 `gpt-5.5`，见 `~/.codex/config.toml`）。
 - 两个独立 quota：OpenAI API key（`AsyncOpenAI`） vs ChatGPT 账户（`codex exec` OAuth）。用 codex OAuth token 走 API 会 429；生产跑 GPT 直接 `codex exec`，跳过 API 尝试省 ~30s/篇。
 
-### ⚠️ 生产 LLM 接线现状（drift）
+### 生产编排：自驱流水线（Phase 1，2026-06-01）
 
-`backend/main.py` 的 `lifespan` **只初始化 DB/Embedding/VectorStore，不构造 LLMClient**——FastAPI app 本身不跑 analyzer。实际跑分析的是 `scripts/run_full_pipeline.py` / `retry_analyzer.py` / `retry_to_target.py`（各自直接构造 LLMClient，已切到 `deepseek-v4-pro` + `enable_thinking=True`）。所以"换模型"要同时改 `settings.yaml` 和这三个脚本。
+⚠️ **此前的「drift」（lifespan 不构造 LLMClient、app 本身不跑 analyzer）已修复——系统现在自驱。** `backend/main.py:lifespan`：
+- 构造 LLMClient + 全部 5 个 stage service（→ `PipelineRunner`）+ collector/reporter，并起 **APScheduler**（`backend/scheduler/runtime.py` 的 `build_pipeline_runner` / `build_scheduler`）：间隔 30s `tick()` drain、每日 cron `collect_hf_daily`(top-15、幂等跳过已存在)、每周 cron `generate_report`。
+- 由 **env `PT_SCHEDULER`** 开关（默认 `on`）。`PT_SCHEDULER=off uvicorn ...` 只起 API 不起调度，且**不会自动消化 backlog/花钱**——开发/测试用这个。
+- **串行 drain**：APScheduler `max_instances=1`，单 worker 串行（claim 锁保证安全，但刻意不并发，绕开 `claim()` 竞态）。
+- ⚠️ **启动即开跑**：`PT_SCHEDULER=on` 一启动就会把现有 backlog 一路 pdf_parse→processor→analyzer 跑完，**真打 DeepSeek/embedding（花钱）**。
+- 踩坑：`VectorStore(persist_directory=)` 笔误（正确 `persist_dir=`）曾让 **lifespan 整个启动失败**，而单测照样全绿（测试走 `create_app(db=...)` 跳过 lifespan）——已修，并加 `tests/backend/test_main_lifespan.py` 用 `TestClient` 真跑 lifespan 兜底这类构造 bug。
+- `scripts/run_full_pipeline.py` / `retry_analyzer.py` / `retry_to_target.py` 仍在（直接构造 LLMClient，`deepseek-v4-pro` + thinking），供手动/回填用；换模型要同时改 `settings.yaml` + 这三脚本。
+
+详见 plan `docs/superpowers/plans/2026-06-01-phase1-automation-orchestration.md`。
 
 ### StageRunner 注意事项
 
