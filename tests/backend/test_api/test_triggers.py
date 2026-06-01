@@ -123,3 +123,42 @@ async def test_trigger_report_generate_rejects_bad_date(db):
             json={"week_start": "nope", "week_end": "2026-05-31"},
         )
     assert r.status_code == 422
+
+
+from backend.core.stage_runner import StageRunner  # noqa: E402
+
+
+async def _insert_paper(db, paper_id):
+    await db.execute(
+        "INSERT INTO papers (id, title, abstract, first_seen_at, updated_at) "
+        "VALUES (?, ?, ?, datetime('now'), datetime('now'))",
+        (paper_id, "T", ""),
+    )
+
+
+async def test_reanalyze_paper_requeues_existing_analyzer_run(db):
+    app = create_app(db=db)
+    deps.set_db(db)
+    sr = StageRunner(db)
+    await _insert_paper(db, "2401.55555")
+    run_id = await sr.create(
+        target_type="paper", target_id="2401.55555", stage="analyzer",
+        payload={"chunk_manifest_path": "/tmp/m.json"},
+    )
+    await sr.complete(run_id)  # mark succeeded; prove it gets reset to pending
+
+    async with _client(app) as ac:
+        r = await ac.post("/api/papers/2401.55555/analyze")
+
+    assert r.status_code == 200
+    assert r.json()["status"] == "requeued"
+    row = await db.fetch_one("SELECT status FROM stage_runs WHERE id = ?", (run_id,))
+    assert row["status"] == "pending"
+
+
+async def test_reanalyze_unknown_paper_404(db):
+    app = create_app(db=db)
+    deps.set_db(db)
+    async with _client(app) as ac:
+        r = await ac.post("/api/papers/does-not-exist/analyze")
+    assert r.status_code == 404

@@ -4,7 +4,7 @@ import json
 
 from fastapi import APIRouter, HTTPException, Query
 
-from backend.api.deps import get_db
+from backend.api.deps import get_db, get_stage_runner
 
 router = APIRouter(prefix="/api/papers", tags=["papers"])
 
@@ -143,3 +143,21 @@ async def get_paper(paper_id: str):
         "analysis": analysis,
         "sources": sources_list,
     }
+
+
+@router.post("/{paper_id}/analyze")
+async def reanalyze_paper(paper_id: str) -> dict:
+    db = get_db()
+    stage_runner = get_stage_runner()
+    row = await db.fetch_one(
+        "SELECT id FROM stage_runs WHERE target_id = ? AND stage = 'analyzer' "
+        "ORDER BY id DESC LIMIT 1",
+        (paper_id,),
+    )
+    if not row:
+        raise HTTPException(
+            status_code=404,
+            detail="No analyzer task for this paper; run the pipeline first",
+        )
+    await stage_runner.retry(row["id"])
+    return {"status": "requeued", "paper_id": paper_id, "stage_run_id": row["id"]}
