@@ -56,3 +56,27 @@ def set_pipeline_runner(runner) -> None:
 def get_pipeline_runner():
     assert _pipeline_runner is not None, "PipelineRunner not initialized"
     return _pipeline_runner
+
+
+_collector = None
+_reporter = None
+
+
+def set_collector(collector) -> None:
+    global _collector
+    _collector = collector
+
+
+def get_collector():
+    assert _collector is not None, "CollectorService not initialized"
+    return _collector
+
+
+def set_reporter(reporter) -> None:
+    global _reporter
+    _reporter = reporter
+
+
+def get_reporter():
+    assert _reporter is not None, "ReporterService not initialized"
+    return _reporter
