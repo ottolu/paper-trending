@@ -101,6 +101,12 @@ async def main() -> None:
         low = [n for n in nums if n <= 45]
         rng = low or nums
         wk_span = f"W{min(rng):02d}-W{max(rng):02d}" if rng else "?"
+        # Per-week momentum window: span the whole corpus (W01-W22), not just the
+        # last 4 weeks, so emerging-trend reasoning sees the full weekly trajectory.
+        week_order = (
+            [f"W{n:02d}" for n in range(min(rng), max(rng) + 1)]
+            if rng else ["W19", "W20", "W21", "W22"]
+        )
 
         # embeddings from ChromaDB (VectorStore.get drops `include`, so go direct)
         col = chromadb.PersistentClient(path=str(DATA_ROOT / "chromadb")).get_collection(COLLECTION)
@@ -154,14 +160,14 @@ async def main() -> None:
             imp = [m["breakdown"].get("impact") for m in members if isinstance(m["breakdown"].get("impact"), (int, float))]
             return {
                 "size": len(members),
-                "weeks": {w: weeks.get(w, 0) for w in ["W19", "W20", "W21", "W22"]},
+                "weeks": {w: weeks.get(w, 0) for w in week_order},
                 "avg_score": round(statistics.mean(scores), 2) if scores else 0,
                 "avg_novelty": round(statistics.mean(nov), 1) if nov else 0,
                 "avg_impact": round(statistics.mean(imp), 1) if imp else 0,
                 "likes_median": int(statistics.median(likes)) if likes else 0,
                 "likes_max": max(likes) if likes else 0,
                 "top_tags": [t for t, _ in tags.most_common(6)],
-                "by_score": sorted(members, key=lambda m: -m["score"])[:3],
+                "by_score": sorted(members, key=lambda m: -m["score"])[:5],
                 "by_likes": sorted(members, key=lambda m: -m["likes"])[:2],
             }
 
@@ -173,7 +179,7 @@ async def main() -> None:
         )
         for lab, members in ordered:
             s = cluster_signals(members)
-            mom = " ".join(f"{w}:{s['weeks'][w]}" for w in ["W19", "W20", "W21", "W22"])
+            mom = " ".join(f"{w}:{s['weeks'][w]}" for w in week_order)
             lines.append(
                 f"\n### cluster-{lab} (n={s['size']})\n"
                 f"week momentum: {mom} | avg_score={s['avg_score']} "
@@ -205,19 +211,38 @@ async def main() -> None:
         llm = LLMClient(base_url=DS_BASE_URL, api_key=os.environ["DEEPSEEK_API_KEY"],
                         model=LLM_MODEL, enable_thinking=True)
         sys_prompt = (
-            f"你是 AI 研究趋势分析师。下面是 2026 年 ISO 周 {wk_span} 的 HuggingFace 高热论文经过"
-            "全文 LLM 分析后的聚类结果。每簇给了规模、周分布（动量）、学术分（novelty/impact，1-10）、"
-            "HF 社区点赞（likes，独立信号，勿与学术分混合）、高频标签、代表论文。\n\n"
-            "请用中文输出一份趋势报告，包含：\n"
-            "1. **主题命名**：给每个 cluster 起一个准确的研究主题名（不要用 cluster-N）。\n"
-            "2. **当前热点 topic（排名）**：综合判断当下最热的方向。学术热度（簇规模×avg_score×novelty/impact）"
-            "和社区热度（HF likes）**分两栏并列呈现**，不要加权混合；指出二者一致或背离。\n"
-            "3. **预判的上升/新兴趋势**：基于周动量（W19→W22 增长）、高 novelty 但目前簇小、以及主题间的"
-            "空白地带，推断未来可能成为热点的方向，给出理由。**特别关注「长尾候选」列表**——新兴方向常以单点"
-            "形式出现在那里，挑出有潜力的。\n"
-            "4. **学术 vs 社区错位案例**：高 likes 低学术分（产品/话题驱动）或高学术分低 likes（被低估）的"
-            "具体论文，简述原因。\n"
-            "结论要具体、可执行，引用代表论文标题佐证。"
+            f"你是资深 AI 研究趋势分析师。下面是 2026 年 ISO 周 {wk_span} 的 HuggingFace 高热论文经过"
+            "全文 LLM 分析后的聚类结果。每簇给了规模、逐周分布（动量，覆盖整个语料跨度）、学术分"
+            "（novelty/impact，1-10）、HF 社区点赞（likes，**独立信号，严禁与学术分加权混合**）、"
+            "高频标签、代表论文（按学术分）与最高赞论文。另附「长尾候选」——HDBSCAN 未归簇的离群论文，"
+            "新兴方向常以单点形式潜伏其中。\n\n"
+            "请用中文输出一份**深度趋势报告**，结构如下：\n\n"
+            "## 一、执行摘要\n"
+            "5-8 句，点出本期最重要的全局判断：谁在主导、谁在加速、最值得下注的新兴方向、最大的"
+            "学术-社区背离。先给结论，后文再展开。\n\n"
+            "## 二、主题速览\n"
+            "给每个 cluster 起一个准确的研究主题名（**不要用 cluster-N**），每个配一句话定位。保持紧凑，"
+            "**不要在这里展开**——这只是地图。\n\n"
+            "## 三、当前热点（双轨排名）\n"
+            "学术热度（簇规模 × avg_score × novelty/impact）与社区热度（HF likes）**分两栏并列呈现**，"
+            "各列 Top 方向。明确指出二者一致（双高）与背离（一高一低）的方向。**不要加权混合成单一分数。**\n\n"
+            "## 四、🎯 新兴趋势深度预判（本报告重心）\n"
+            "挑出 6–10 个最值得预判的上升/新兴方向，**每个写成一个充分展开的小节**（用 `### 趋势名` 起头），"
+            "而非一句话 bullet。每个小节必须包含：\n"
+            "- **证据链**：逐周动量走势（引用具体 W..→W.. 数字，指出拐点）、novelty 水平、与相邻主题的"
+            "空白地带、长尾里的单点佐证；\n"
+            "- **上升逻辑**：做机制性推理——为什么这个方向会在未来几周/几月成为热点（技术驱动力、下游需求、"
+            "与其他趋势的耦合），**不要只罗列现象**；\n"
+            "- **代表/佐证论文**：引用多篇具体论文标题（含簇内 + 长尾），带 [学术分|likes]；\n"
+            "- **瓶颈与不确定性**：什么在挡路、哪些信号一旦出现会证伪这个预判；\n"
+            "- **时间窗与置信度**（如「未来 1-2 月 / 中高置信」）+ 值得追踪的指标、论文或团队。\n"
+            "⚠️ **此节是全篇最深的部分，必须深度论证，不得退化成简报式罗列。**\n\n"
+            "## 五、学术 vs 社区错位\n"
+            "列具体错位案例（高 likes 低学术分的产品/话题驱动论文；高学术分低 likes 的被低估论文），"
+            "并总结背后的**模式**（什么类型系统性被高估/低估）。\n\n"
+            "## 六、追读 / 追踪清单\n"
+            "给读者一份可执行清单：本期必读论文、未来要盯的方向与信号、值得关注的团队。\n\n"
+            "全文要具体、可执行，所有判断都引用代表论文标题佐证，避免空泛套话。"
         )
         user_content = (
             f"共 {len(papers)} 篇，{len(ordered)} 个主题簇（另 {noise_n} 篇长尾未归簇）。\n"
@@ -228,7 +253,7 @@ async def main() -> None:
             {"role": "user", "content": user_content},
         ]
         print("calling LLM for synthesis ...", flush=True)
-        report = await llm.chat(messages)
+        report = await llm.chat(messages, max_tokens=16000)
 
         out = Path(args.out)
         out.parent.mkdir(parents=True, exist_ok=True)
@@ -237,12 +262,9 @@ async def main() -> None:
             f"> 语料：{len(papers)} 篇全文分析论文 | {len(ordered)} 个主题簇（{noise_n} 篇离群）"
             f" | HDBSCAN(mcs={args.min_cluster_size}, {args.selection_method}) | 模型 {LLM_MODEL}\n\n"
         )
-        out.write_text(
-            header + report
-            + "\n\n---\n## 附：聚类信号原始数据\n" + cluster_block
-            + f"\n\n## 附：长尾候选（{noise_n} 篇）\n" + noise_block,
-            encoding="utf-8",
-        )
+        # Cluster signals + long-tail are fed to the LLM as analysis input above,
+        # but intentionally NOT appended to the report (kept out per the new spec).
+        out.write_text(header + report, encoding="utf-8")
         print(f"report written to {out} ({len(report)} chars)")
     finally:
         await db.close()
