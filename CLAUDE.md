@@ -149,7 +149,7 @@ async def db(tmp_path):
 
 - **CLAUDE.md 单写者 + findings 收件箱（跨 session 防冲突）**：CLAUDE.md 所有 session 启动即加载，是共享知识库；多源并发直接改它必冲突、易丢经验（2026-06 三方并发改 CLAUDE.md 实证）。⚠️ **纳入 git 的「收件箱文件」不解决问题**——它和 CLAUDE.md 一样是分支隔离的（worktree 各有独立工作目录/分支，别人分支上的改动不 merge 进 main 你就看不到）。规矩：
   1. **每轮只一个 CLAUDE.md owner** 实际编辑 CLAUDE.md（人指定，或由做收尾/整合的 session 担任）。
-  2. **其他 session 不直接改 CLAUDE.md**——把 finding 作为**单独一个文件**写到 **`~/pt-findings/<session>-<短主题>.md`**（仓库外、所有 worktree 之上的共享文件夹，**本机协调用、不入 git**；一 finding 一文件天然免写冲突，无需时间戳）。写法见 `~/pt-findings/README.md` 模板。
+  2. **其他 session 不直接改 CLAUDE.md**——把 finding 作为**单独一个文件**写到 **`~/pt-findings/<session>-<短主题>.md`**（仓库外、所有 worktree 之上的共享文件夹，**本机临时队列、不入 git**：纳入 git 的文件分支隔离、跨 worktree 看不到，故队列必须放仓库外；一 finding 一文件天然免写冲突，无需时间戳。文件夹首次用时自建 `mkdir -p ~/pt-findings`）。**写法/模板见仓库内 `docs/claude-md-findings-template.md`**（这份随 repo 走，换机/clone 都有；队列本身是单机临时的，因为并发 session 总在同一台机器共享 worktree）。
   3. **owner 整合**：读 `~/pt-findings/` 全部 → 逐条 fold 进对应章节、去重 → `git diff origin/main -- CLAUDE.md` 自查**只增改、没删**别人的规则 → 跑知识完整性核对 → commit message 列明 fold 了哪些 → **删掉已处理的 finding 文件**（清空队列；永久记录留在 CLAUDE.md 的 git 历史，队列不留史）。
 
 - **论文分析必须基于 PDF 全文**：不能用 abstract-only 来分析论文。所有分析都需要先经过 PDF 解析（生产默认 pymupdf，见「PDF 解析」段）提取全文，再送入 LLM 分析。abstract-only 模式只能用于快速预筛，不能作为最终分析依据。
