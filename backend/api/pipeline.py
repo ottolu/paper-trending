@@ -25,12 +25,11 @@ async def trigger_tick(background_tasks: BackgroundTasks) -> dict:
 
 
 class CollectRequest(BaseModel):
-    date: str | None = None
+    target_date: date | None = None
     top: int = 15
 
 
 @router.post("/collect")
 async def trigger_collect(req: CollectRequest) -> dict:
     collector = get_collector()
-    target_date = date.fromisoformat(req.date) if req.date else None
-    return await collector.collect_hf_daily(target_date=target_date, top=req.top)
+    return await collector.collect_hf_daily(target_date=req.target_date, top=req.top)
