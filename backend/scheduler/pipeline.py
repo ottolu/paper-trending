@@ -37,6 +37,9 @@ class PipelineRunner:
     async def get_pending_counts(self) -> dict[str, int]:
         counts = {}
         for stage in STAGE_ORDER:
-            rows = await self._stage_runner.list_by_status(stage, "pending")
-            counts[stage] = len(rows)
+            row = await self._db.fetch_one(
+                "SELECT COUNT(*) AS c FROM stage_runs WHERE stage = ? AND status = 'pending'",
+                (stage,),
+            )
+            counts[stage] = row["c"] if row else 0
         return counts

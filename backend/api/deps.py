@@ -43,3 +43,16 @@ def set_vector_store(store) -> None:
 def get_vector_store():
     assert _vector_store is not None, "VectorStore not initialized"
     return _vector_store
+
+
+_pipeline_runner = None
+
+
+def set_pipeline_runner(runner) -> None:
+    global _pipeline_runner
+    _pipeline_runner = runner
+
+
+def get_pipeline_runner():
+    assert _pipeline_runner is not None, "PipelineRunner not initialized"
+    return _pipeline_runner
