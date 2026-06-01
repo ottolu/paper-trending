@@ -135,6 +135,8 @@ async def db(tmp_path):
 
 - **并行开发用 git worktree 隔离，别共用工作树**：当有另一个 session/进程正在这个仓库工作（或你要并行跑长任务、改半成品时被叫去做别的），**不要在主工作树里直接切分支/改文件**——`git checkout` 是原地覆盖同一个目录，两个 agent 会互相踩（曾踩过：一个 session `checkout` 到别的分支，另一个 session 脚下文件被换、改动被搅）。正确做法：`git worktree add -b <分支> ~/pt-<名字> <起点分支>` 开一个物理隔离目录，在里面 edit/commit/push/PR，完全不碰别人正在编辑的主树。用完 `git worktree remove <目录>`（删目录不删分支；分支单独 `git branch -d`）。worktree 共享同一 `.git`，分支/提交即时互见，比 clone 省空间。⚠️ 同一分支不能同时在两个 worktree checkout。worktree 目录放 `~/pt-xxx` 等持久位置，别放 `/tmp`（重启可能被清）。
 
+- **云端会话（Ultraplan / Claude Code on the web）只规划/改代码，数据相关步骤必须回本地跑**：云端容器是仓库的全新 clone，**没有 `data/`（gitignore：tracker.db / papers / chromadb 全不在）、没有 `.env`、可能也没有 push 凭证**。所以任何依赖数据库/向量库/660 篇语料的脚本（`trend_report.py`、`analyze_all.py` 等）在云端**根本跑不起来**。标准协作模式：**云端精修 plan / 改脚本 → 导出 `git diff` patch → 本地 `git apply` → 用真实数据跑**。云端远程会话登录需 **Claude.ai 账户（非 Console / API key）**，否则 `cannot launch remote session`。详见 dev-note 2026-06-01-cloud-local-workflow。
+
 - **论文分析必须基于 PDF 全文**：不能用 abstract-only 来分析论文。所有分析都需要先经过 PDF 解析（marker-pdf）提取全文，再送入 LLM 分析。abstract-only 模式只能用于快速预筛，不能作为最终分析依据。
 
 - **研发过程中产出的经验必须落到 `docs/dev-notes/`**：以下场景结束后，必须写/更新 dev-note，不能只存在于对话里：
@@ -285,7 +287,11 @@ surya 在 Apple Silicon MPS 上有多个 `.item()`/`.max()` 返回垃圾值的 b
 
 ## 趋势 / 聚类分析
 
-`scripts/trend_report.py`：120 篇 → HDBSCAN(title+abstract 嵌入，mcs=3) → 双轨信号 → LLM 综合报告。⚠️ 两个 reporter 潜伏 bug（趋势脚本已绕过，未修）：`VectorStore.get()` 不接受 `include` 参数（`ReporterService.generate_report` 调用会 TypeError）；`ClusterService.run` 写 `cluster_runs` 需要 `embedding_versions` FK 行（缺则 FOREIGN KEY 失败）。Qwen3-Embedding 输出本就 L2 归一化。HDBSCAN 噪声当「新兴趋势候选」喂 LLM，别丢弃。详见 dev-note 2026-06-01-trend-clustering。
+`scripts/trend_report.py`：取分析结果嵌入 → (可选 UMAP 降维) → HDBSCAN → 双轨信号 → LLM 综合**深度趋势预判报告**。
+- **生产配置（660 篇规模）**：`--umap-dims 10 --selection-method eom --min-cluster-size 8` → 33 簇 / 78% 覆盖。⚠️ **几百篇必须先 UMAP 降维**再聚类：4096 维 Qwen 嵌入直聚会退化（eom→2 个巨簇，或 leaf→66% 噪声）；UMAP10(cosine) 后噪声降到 ~20%。120 篇规模直聚 mcs=3 尚可。需 `umap-learn`（脚本缺库优雅回退）。
+- **报告是深度版（2026-06-01 改写）**：6 段结构，重心是「🎯 新兴趋势深度预判」——挑 6–10 个方向**逐个展开**（证据链/上升逻辑/代表论文/瓶颈/时间窗+置信度），非 briefing。周动量覆盖**全语料跨度**（非最近 4 周）。**聚类原始数据/长尾不写进报告**（仍作 LLM 输入，只是不输出）。`max_tokens=16000` 防截断。
+- ⚠️ 两个 reporter 潜伏 bug（趋势脚本已绕过，未修）：`VectorStore.get()` 不接受 `include` 参数（`ReporterService.generate_report` 调用会 TypeError）；`ClusterService.run` 写 `cluster_runs` 需要 `embedding_versions` FK 行（缺则 FOREIGN KEY 失败）。
+- Qwen3-Embedding 输出本就 L2 归一化；HDBSCAN 噪声当「新兴趋势候选」喂 LLM 别丢弃；`_week()` 年份无关，跨年末 straggler 需在标签处剔除。详见 dev-note 2026-06-01-trend-clustering。
 
 ## Design Docs
 
