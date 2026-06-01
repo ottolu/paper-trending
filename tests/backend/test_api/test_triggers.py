@@ -3,6 +3,7 @@ from httpx import ASGITransport, AsyncClient
 
 from backend.api import deps
 from backend.core.database import Database
+from backend.core.stage_runner import StageRunner
 from backend.main import create_app
 
 
@@ -125,9 +126,6 @@ async def test_trigger_report_generate_rejects_bad_date(db):
     assert r.status_code == 422
 
 
-from backend.core.stage_runner import StageRunner  # noqa: E402
-
-
 async def _insert_paper(db, paper_id):
     await db.execute(
         "INSERT INTO papers (id, title, abstract, first_seen_at, updated_at) "
@@ -150,8 +148,9 @@ async def test_reanalyze_paper_requeues_existing_analyzer_run(db):
     async with _client(app) as ac:
         r = await ac.post("/api/papers/2401.55555/analyze")
 
-    assert r.status_code == 200
+    assert r.status_code == 202
     assert r.json()["status"] == "requeued"
+    assert r.json()["previous_status"] == "succeeded"
     row = await db.fetch_one("SELECT status FROM stage_runs WHERE id = ?", (run_id,))
     assert row["status"] == "pending"
 

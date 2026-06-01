@@ -145,12 +145,12 @@ async def get_paper(paper_id: str):
     }
 
 
-@router.post("/{paper_id}/analyze")
+@router.post("/{paper_id}/analyze", status_code=202)
 async def reanalyze_paper(paper_id: str) -> dict:
     db = get_db()
     stage_runner = get_stage_runner()
     row = await db.fetch_one(
-        "SELECT id FROM stage_runs WHERE target_id = ? AND stage = 'analyzer' "
+        "SELECT id, status FROM stage_runs WHERE target_id = ? AND stage = 'analyzer' "
         "ORDER BY id DESC LIMIT 1",
         (paper_id,),
     )
@@ -160,4 +160,9 @@ async def reanalyze_paper(paper_id: str) -> dict:
             detail="No analyzer task for this paper; run the pipeline first",
         )
     await stage_runner.retry(row["id"])
-    return {"status": "requeued", "paper_id": paper_id, "stage_run_id": row["id"]}
+    return {
+        "status": "requeued",
+        "paper_id": paper_id,
+        "stage_run_id": row["id"],
+        "previous_status": row["status"],
+    }
