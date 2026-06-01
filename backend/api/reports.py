@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import date
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
@@ -32,18 +33,21 @@ async def list_reports(
 
 
 class GenerateReportRequest(BaseModel):
-    week_start: str
-    week_end: str
+    week_start: date
+    week_end: date
 
 
 @router.post("/generate")
 async def generate_report_endpoint(req: GenerateReportRequest) -> dict:
     reporter = get_reporter()
-    try:
-        report_id = await reporter.generate_report(req.week_start, req.week_end)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    return {"report_id": report_id, "week_start": req.week_start, "week_end": req.week_end}
+    report_id = await reporter.generate_report(
+        req.week_start.isoformat(), req.week_end.isoformat()
+    )
+    return {
+        "report_id": report_id,
+        "week_start": req.week_start.isoformat(),
+        "week_end": req.week_end.isoformat(),
+    }
 
 
 @router.get("/{report_id}")

@@ -106,3 +106,20 @@ async def test_trigger_report_generate(db):
     body = r.json()
     assert body["report_id"] == 7
     assert reporter.calls == [("2026-05-25", "2026-05-31")]
+
+
+async def test_trigger_report_generate_rejects_bad_date(db):
+    app = create_app(db=db)
+    deps.set_db(db)
+
+    class FakeReporter:
+        async def generate_report(self, week_start, week_end):
+            return 1
+
+    deps.set_reporter(FakeReporter())
+    async with _client(app) as ac:
+        r = await ac.post(
+            "/api/reports/generate",
+            json={"week_start": "nope", "week_end": "2026-05-31"},
+        )
+    assert r.status_code == 422
