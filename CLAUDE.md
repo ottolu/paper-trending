@@ -46,7 +46,7 @@ collect → pdf_fetch → pdf_parse → processor → analyzer → sync
 | 模块 | 路径 | 职责 |
 |------|------|------|
 | Database | `backend/core/database.py` | aiosqlite 异步封装，WAL + FK |
-| StageRunner | `backend/core/stage_runner.py` | 任务状态机：create/claim/complete/fail/retry |
+| StageRunner | `backend/core/stage_runner.py` | 任务状态机：create/claim/complete/fail/retry/retry_failed |
 | LLMClient | `backend/core/llm_client.py` | OpenAI 协议的 chat/chat_json |
 | EmbeddingClient | `backend/core/embedding_client.py` | OpenAI 协议的 embed |
 | VectorStore | `backend/core/vector_store.py` | ChromaDB 持久化封装 |
@@ -57,7 +57,8 @@ collect → pdf_fetch → pdf_parse → processor → analyzer → sync
 | AnalyzerService | `backend/analyzer/service.py` | LLM 深度分析 |
 | ObsidianSyncService | `backend/sync/service.py` | 笔记写入 Obsidian vault |
 | ReporterService | `backend/reporter/service.py` | HDBSCAN 聚类 + LLM 周报 |
-| PipelineRunner | `backend/scheduler/pipeline.py` | 流水线调度 |
+| PipelineRunner | `backend/scheduler/pipeline.py` | 流水线调度（`tick()` 串行 drain 所有 stage） |
+| SchedulerRuntime | `backend/scheduler/runtime.py` | lifespan 装配：`build_pipeline_runner`（拼全部 stage service）+ `build_scheduler`（APScheduler：间隔 tick / 每日 collect / 每周 report） |
 | BackfillService | `backend/scheduler/backfill.py` | 历史回填任务 |
 
 ### API Layer
